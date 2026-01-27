@@ -1,0 +1,21 @@
+# AlphaFold Docker container configuration
+# This extends the official AlphaFold container for SNOWFLAKE integration
+FROM alphafold:latest
+
+WORKDIR /app
+
+# Install additional dependencies for API integration
+RUN pip install --no-cache-dir \
+    fastapi \
+    requests \
+    aiofiles
+
+# Copy integration scripts
+COPY scripts/alphafold_wrapper.py /app/
+
+# Set environment variables
+ENV ALPHAFOLD_DATA_DIR=/data/alphafold
+ENV OUTPUT_DIR=/output
+
+# Entry point for running AlphaFold via API
+ENTRYPOINT ["python", "/app/alphafold_wrapper.py"]

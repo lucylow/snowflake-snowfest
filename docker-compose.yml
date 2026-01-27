@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./snowflake.db
+      - ALPHAFOLD_DOCKER_IMAGE=alphafold
+      - ALPHAFOLD_DATA_DIR=/data/alphafold
+      - ALPHAFOLD_USE_CLOUD_API=false
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./backend:/app
+      - predictions:/workspace/predictions
+      - uploads:/workspace/uploads
+      - cache:/workspace/cache
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.next
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  predictions:
+  uploads:
+  cache:
+  redis_data:
+  alphafold_data:
