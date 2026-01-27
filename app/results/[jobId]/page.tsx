@@ -40,7 +40,7 @@ export default function ResultsPage() {
         setError(null)
         const mockData = mockDockingResults[jobId as keyof typeof mockDockingResults]
         if (mockData) {
-          setResults(mockData as DockingResult)
+          setResults(mockData as unknown as DockingResult)
           setIsLoading(false)
           return
         }

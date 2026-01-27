@@ -6,10 +6,13 @@ import type { PublicKey } from "@solana/web3.js"
 
 interface PhantomWallet {
   publicKey: PublicKey
+  isConnected?: boolean
   signTransaction: (transaction: any) => Promise<any>
   signAllTransactions: (transactions: any[]) => Promise<any[]>
   connect: () => Promise<{ publicKey: PublicKey }>
   disconnect: () => Promise<void>
+  on?: (event: string, callback: (arg: any) => void) => void
+  removeAllListeners?: () => void
 }
 
 interface WalletContextType {
@@ -90,13 +93,13 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
     if (phantomWallet) {
       try {
-        phantomWallet.on("connect", (publicKey: PublicKey) => {
+        phantomWallet.on?.("connect", (publicKey: PublicKey) => {
           setWallet(phantomWallet)
           setPublicKey(publicKey)
           setConnected(true)
         })
 
-        phantomWallet.on("disconnect", () => {
+        phantomWallet.on?.("disconnect", () => {
           setWallet(null)
           setPublicKey(null)
           setConnected(false)
@@ -115,7 +118,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     return () => {
       if (phantomWallet) {
         try {
-          phantomWallet.removeAllListeners()
+          phantomWallet.removeAllListeners?.()
         } catch (err) {
           // Ignore cleanup errors
         }

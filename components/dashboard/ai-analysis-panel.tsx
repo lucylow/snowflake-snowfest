@@ -36,30 +36,34 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
       if (mockData) {
         await new Promise((resolve) => setTimeout(resolve, 1500))
 
-        const stakeholderData = mockData[stakeholderType]
-        setResult({
-          analysis: {
-            summary: stakeholderData.summary,
-            detailed_analysis:
-              stakeholderData.bindingAnalysis ||
-              stakeholderData.marketOpportunity ||
-              stakeholderData.safetyProfile ||
-              stakeholderData.clinicalApplication ||
-              {},
-            limitations: [
-              "Analysis based on computational predictions only",
-              "Experimental validation required",
-              "In vivo efficacy not confirmed",
-            ],
-          },
-          recommendations: stakeholderData.recommendations || [],
-          confidence: stakeholderData.confidence,
-          metadata: {
-            model: "gpt-4-turbo",
-            costEstimate: 0.0234,
-            processingTime: 1.5,
-          },
-        })
+        const stakeholderData = mockData[stakeholderType as keyof typeof mockData] as any
+        if (stakeholderData) {
+          setResult({
+            analysis: {
+              summary: stakeholderData.summary,
+              detailed_analysis:
+                stakeholderData.bindingAnalysis ||
+                stakeholderData.marketOpportunity ||
+                stakeholderData.safetyProfile ||
+                stakeholderData.clinicalApplication ||
+                {},
+              limitations: [
+                "Analysis based on computational predictions only",
+                "Experimental validation required",
+                "In vivo efficacy not confirmed",
+              ],
+            },
+            recommendations: stakeholderData.recommendations || [],
+            confidence: stakeholderData.confidence,
+            metadata: {
+              model: "gpt-4-turbo",
+              costEstimate: 0.0234,
+              processingTime: 1.5,
+            },
+          })
+          setIsAnalyzing(false)
+          return
+        }
         setIsAnalyzing(false)
         return
       }

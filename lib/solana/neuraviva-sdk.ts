@@ -322,8 +322,11 @@ export class NeuravivaSDK {
       }
 
       // Parse memo data from transaction
-      const memoInstruction = transaction.transaction.message.instructions.find((ix: any) => {
-        return ix.programId.toString() === "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+      const message = transaction.transaction.message as any
+      const instructions = message.instructions || message.compiledInstructions || []
+      const memoInstruction = instructions.find((ix: any) => {
+        const programId = ix.programId?.toString() || (message.staticAccountKeys?.[ix.programIdIndex]?.toString())
+        return programId === "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
       })
 
       if (!memoInstruction) {
