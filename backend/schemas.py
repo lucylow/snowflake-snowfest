@@ -56,6 +56,7 @@ class JobResponse(BaseModel):
     protein_sequence: Optional[str] = None
     predicted_pdb_path: Optional[str] = None
     plddt_score: Optional[float] = None
+    quality_metrics: Optional[Dict[str, Any]] = None
     top_binding_score: Optional[float] = None
     ai_report_content: Optional[str] = None
     blockchain_tx_hash: Optional[str] = None
