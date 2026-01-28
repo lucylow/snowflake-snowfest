@@ -8,9 +8,15 @@ export function Hero() {
   return (
     <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-24 sm:py-32 md:py-40 lg:py-48">
       <div className="mx-auto max-w-4xl text-center">
-        <div className="mb-8 inline-flex items-center rounded-full border bg-muted px-4 py-2 text-sm shadow-sm sm:px-5">
-          <span className="mr-3 h-2 w-2 rounded-full bg-primary animate-pulse"></span>
-          New: AI-Powered AlphaFold Structure Prediction
+        <div className="mb-8 flex flex-col sm:flex-row gap-3 items-center justify-center">
+          <div className="inline-flex items-center rounded-full border bg-muted px-4 py-2 text-sm shadow-sm sm:px-5">
+            <span className="mr-3 h-2 w-2 rounded-full bg-primary animate-pulse"></span>
+            🏆 Built for Snow Fest Hackathon 2026
+          </div>
+          <div className="inline-flex items-center rounded-full border bg-primary/10 px-4 py-2 text-sm shadow-sm sm:px-5">
+            <span className="mr-3 h-2 w-2 rounded-full bg-primary animate-pulse"></span>
+            AI-Powered Drug Discovery Platform
+          </div>
         </div>
 
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl mb-6 sm:mb-8 text-balance leading-tight">
@@ -18,7 +24,7 @@ export function Hero() {
         </h1>
 
         <p className="mx-auto max-w-2xl text-base text-muted-foreground sm:text-lg md:text-xl mb-10 sm:mb-12 text-pretty leading-relaxed">
-          Leverage state-of-the-art AI to predict protein structures with atomic accuracy, then screen thousands of compounds to discover novel therapeutics for human health.
+          Revolutionizing drug discovery with AlphaFold structure prediction, AI-powered analysis, and blockchain verification. Accelerate therapeutic development from weeks to days.
         </p>
 
         <div className="flex flex-col gap-4 justify-center items-center mb-8 sm:flex-row">
