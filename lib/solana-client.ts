@@ -1,14 +1,9 @@
-import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js"
+import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from "@solana/web3.js"
+
+import { CURRENT_NETWORK, LOG_PREFIX, SOLANA_NETWORKS } from "./constants"
 import { NeuravivaSDK } from "./solana/neuraviva-sdk"
 
-// Solana network configuration
-const NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || "devnet"
-const RPC_URL =
-  NETWORK === "mainnet-beta"
-    ? "https://api.mainnet-beta.solana.com"
-    : NETWORK === "testnet"
-      ? "https://api.testnet.solana.com"
-      : "https://api.devnet.solana.com"
+const RPC_URL = SOLANA_NETWORKS[CURRENT_NETWORK]?.rpc ?? SOLANA_NETWORKS.devnet.rpc
 
 export class SolanaClient {
   private connection: Connection
@@ -25,12 +20,23 @@ export class SolanaClient {
 
   // Get wallet balance in SOL
   async getBalance(publicKey: PublicKey): Promise<number> {
+    if (!publicKey) {
+      throw new Error("Public key is required")
+    }
+
     try {
       const balance = await this.connection.getBalance(publicKey)
+      if (balance < 0) {
+        throw new Error("Invalid balance returned from Solana")
+      }
       return balance / LAMPORTS_PER_SOL
     } catch (error) {
-      console.error("[v0] Error fetching balance:", error)
-      throw new Error("Failed to fetch wallet balance")
+      console.error(`${LOG_PREFIX} Error fetching balance:`, error)
+      const errorMessage = error instanceof Error ? error.message : "Unknown error"
+      if (errorMessage.includes("timeout") || errorMessage.includes("network")) {
+        throw new Error("Network error connecting to Solana. Please check your connection.")
+      }
+      throw new Error(`Failed to fetch wallet balance: ${errorMessage}`)
     }
   }
 
@@ -43,6 +49,14 @@ export class SolanaClient {
     dataHash: string,
     metadata?: string,
   ): Promise<string> {
+    if (!wallet || !wallet.publicKey) {
+      throw new Error("Wallet is required")
+    }
+
+    if (!dataHash || !dataHash.trim()) {
+      throw new Error("Data hash is required")
+    }
+
     try {
       // Create a memo instruction with the data hash
       const memoProgram = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
@@ -53,6 +67,10 @@ export class SolanaClient {
         timestamp: Date.now(),
         metadata: metadata || "",
       })
+
+      if (memoData.length > 1232) {
+        throw new Error("Memo data too long (Solana limit: 1232 bytes)")
+      }
 
       // Create transaction
       const transaction = new Transaction().add(
@@ -70,26 +88,67 @@ export class SolanaClient {
         data: Buffer.from(memoData),
       })
 
-      // Get recent blockhash
-      const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash()
+      // Get recent blockhash with timeout
+      let blockhash: string
+      let lastValidBlockHeight: number
+      try {
+        const blockhashResult = await Promise.race([
+          this.connection.getLatestBlockhash(),
+          new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error("Timeout getting blockhash")), 10000)
+          )
+        ])
+        blockhash = blockhashResult.blockhash
+        lastValidBlockHeight = blockhashResult.lastValidBlockHeight
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error"
+        throw new Error(`Failed to get recent blockhash: ${errorMessage}`)
+      }
+
       transaction.recentBlockhash = blockhash
       transaction.feePayer = wallet.publicKey
 
       // Sign and send transaction
-      const signedTransaction = await wallet.signTransaction(transaction)
-      const signature = await this.connection.sendRawTransaction(signedTransaction.serialize())
+      let signedTransaction: Transaction
+      try {
+        signedTransaction = await wallet.signTransaction(transaction)
+      } catch (error) {
+        throw new Error(`Failed to sign transaction: ${error instanceof Error ? error.message : String(error)}`)
+      }
 
-      // Confirm transaction
-      await this.connection.confirmTransaction({
-        signature,
-        blockhash,
-        lastValidBlockHeight,
-      })
+      let signature: string
+      try {
+        signature = await this.connection.sendRawTransaction(signedTransaction.serialize(), {
+          skipPreflight: false,
+          maxRetries: 3,
+        })
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error"
+        throw new Error(`Failed to send transaction: ${errorMessage}`)
+      }
+
+      // Confirm transaction with timeout
+      try {
+        await Promise.race([
+          this.connection.confirmTransaction({
+            signature,
+            blockhash,
+            lastValidBlockHeight,
+          }),
+          new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error("Transaction confirmation timeout")), 30000)
+          )
+        ])
+      } catch (error) {
+        // Transaction may still be confirmed even if confirmation times out
+        console.warn(`${LOG_PREFIX} Transaction confirmation timeout or error:`, error)
+      }
 
       return signature
     } catch (error) {
-      console.error("[v0] Error storing data on blockchain:", error)
-      throw new Error("Failed to store data on blockchain")
+      console.error(`${LOG_PREFIX} Error storing data on blockchain:`, error)
+      const errorMessage = error instanceof Error ? error.message : "Unknown error"
+      throw new Error(`Failed to store data on blockchain: ${errorMessage}`)
     }
   }
 
@@ -101,7 +160,7 @@ export class SolanaClient {
       })
       return transaction !== null
     } catch (error) {
-      console.error("[v0] Error verifying data:", error)
+      console.error(`${LOG_PREFIX} Error verifying data:`, error)
       return false
     }
   }
@@ -114,7 +173,7 @@ export class SolanaClient {
       })
       return transaction
     } catch (error) {
-      console.error("[v0] Error fetching transaction:", error)
+      console.error(`${LOG_PREFIX} Error fetching transaction:`, error)
       throw new Error("Failed to fetch transaction details")
     }
   }
@@ -122,7 +181,7 @@ export class SolanaClient {
   // Airdrop SOL (devnet/testnet only)
   async requestAirdrop(publicKey: PublicKey, amount = 1): Promise<string> {
     try {
-      if (NETWORK === "mainnet-beta") {
+      if (CURRENT_NETWORK === "mainnet") {
         throw new Error("Airdrop not available on mainnet")
       }
 
@@ -131,14 +190,14 @@ export class SolanaClient {
       await this.connection.confirmTransaction(signature)
       return signature
     } catch (error) {
-      console.error("[v0] Error requesting airdrop:", error)
+      console.error(`${LOG_PREFIX} Error requesting airdrop:`, error)
       throw new Error("Failed to request airdrop")
     }
   }
 
   getNeuravivaSDK(): NeuravivaSDK {
     if (!this.neuravivaSDK) {
-      this.neuravivaSDK = new NeuravivaSDK(this.connection, NETWORK)
+      this.neuravivaSDK = new NeuravivaSDK(this.connection, CURRENT_NETWORK)
     }
     return this.neuravivaSDK
   }

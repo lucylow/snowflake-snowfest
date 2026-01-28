@@ -311,9 +311,23 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="px-6 pb-6">
               {jobs.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Beaker className="w-16 h-16 mx-auto mb-6 opacity-50" />
-                  <p className="text-base">No docking jobs yet. Submit your first job to get started!</p>
+                <div className="text-center py-16 text-muted-foreground">
+                  <div className="mb-6 flex justify-center">
+                    <div className="rounded-full bg-muted p-6">
+                      <Beaker className="w-12 h-12 opacity-50" />
+                    </div>
+                  </div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">No jobs yet</h3>
+                  <p className="text-base mb-6 max-w-md mx-auto">
+                    Get started by submitting your first molecular docking job or AlphaFold structure prediction.
+                  </p>
+                  <Button
+                    onClick={() => setIsSubmitDialogOpen(true)}
+                    className="gap-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Submit Your First Job
+                  </Button>
                 </div>
               ) : (
                 <div className="space-y-5">

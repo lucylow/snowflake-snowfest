@@ -65,20 +65,45 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
     """Get job status and results"""
     from sqlalchemy import select
     
-    result = await db.execute(select(Job).where(Job.id == job_id))
-    job = result.scalar_one_or_none()
+    if not job_id or not job_id.strip():
+        raise HTTPException(status_code=400, detail="Job ID is required")
     
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    return job
+    try:
+        result = await db.execute(select(Job).where(Job.id == job_id))
+        job = result.scalar_one_or_none()
+        
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+        
+        return job
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database error retrieving job")
+    except Exception as e:
+        logger.error(f"Unexpected error getting job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/jobs", response_model=List[JobResponse])
 async def list_jobs(db: AsyncSession = Depends(get_db), skip: int = 0, limit: int = 20):
     """List all jobs"""
     from sqlalchemy import select
     
-    result = await db.execute(select(Job).offset(skip).limit(limit).order_by(Job.created_at.desc()))
-    jobs = result.scalars().all()
+    if skip < 0:
+        raise HTTPException(status_code=400, detail="skip must be non-negative")
     
-    return jobs
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
+    
+    try:
+        result = await db.execute(select(Job).offset(skip).limit(limit).order_by(Job.created_at.desc()))
+        jobs = result.scalars().all()
+        
+        return jobs
+    except SQLAlchemyError as e:
+        logger.error(f"Database error listing jobs: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database error retrieving jobs")
+    except Exception as e:
+        logger.error(f"Unexpected error listing jobs: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

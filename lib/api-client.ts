@@ -1,8 +1,9 @@
 // API Client for backend communication
 // Connects to the FastAPI backend for docking operations
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-const REQUEST_TIMEOUT = 30000 // 30 seconds
+import { API_BASE_URL, LOG_PREFIX, REQUEST_TIMEOUT_AI_MS, REQUEST_TIMEOUT_MS } from "./constants"
+
+const LIGAND_EXT = /\.(sdf|mol2)$/i
 
 export interface DockingParameters {
   job_id?: string
@@ -105,7 +106,7 @@ class APIError extends Error {
   }
 }
 
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = REQUEST_TIMEOUT): Promise<Response> {
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = REQUEST_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeout)
 
@@ -118,10 +119,18 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
     return response
   } catch (error) {
     clearTimeout(timeoutId)
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new APIError("Request timeout - please try again", 408, "TIMEOUT")
+    if (error instanceof Error) {
+      if (error.name === "AbortError") {
+        throw new APIError("Request timeout - please try again", 408, "TIMEOUT")
+      }
+      if (error.message.includes("Failed to fetch") || error.message.includes("NetworkError")) {
+        throw new APIError("Network error - unable to connect to server. Please check your connection.", 0, "NETWORK_ERROR")
+      }
+      if (error.message.includes("TypeError")) {
+        throw new APIError("Network request failed. Please check your connection.", 0, "NETWORK_ERROR")
+      }
     }
-    throw error
+    throw new APIError(`Request failed: ${error instanceof Error ? error.message : String(error)}`, 0, "REQUEST_ERROR")
   }
 }
 
@@ -164,7 +173,7 @@ class APIClient {
       throw new APIError("Protein file must be in PDB format", 400, "INVALID_FORMAT")
     }
 
-    if (!ligandFile.name.match(/\.(sdf|mol2)$/i)) {
+    if (!LIGAND_EXT.test(ligandFile.name)) {
       throw new APIError("Ligand file must be in SDF or MOL2 format", 400, "INVALID_FORMAT")
     }
 
@@ -272,7 +281,7 @@ class APIClient {
           },
           body: JSON.stringify(request),
         },
-        60000, // 60 seconds for AI analysis
+        REQUEST_TIMEOUT_AI_MS,
       )
 
       return this.handleResponse(response, "AI analysis")
@@ -339,7 +348,8 @@ class APIClient {
   }
 
   connectWebSocket(jobId: string, onMessage: (data: JobStatus) => void, onError?: (error: Event) => void): WebSocket {
-    const wsUrl = this.baseUrl.replace("http", "ws")
+    // Handle both http and https protocols correctly
+    const wsUrl = this.baseUrl.replace(/^https?/, (match) => match === "https" ? "wss" : "ws")
     const ws = new WebSocket(`${wsUrl}/ws/status/${jobId}`)
 
     ws.onmessage = (event) => {
@@ -363,6 +373,132 @@ class APIClient {
     }
 
     return ws
+  }
+
+  // External API methods
+  async proxyExternalAPI(
+    apiName: string,
+    endpoint: string,
+    method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
+    params?: Record<string, any>,
+    jsonData?: Record<string, any>,
+    headers?: Record<string, string>,
+    apiKey?: string,
+    baseUrl?: string,
+  ): Promise<any> {
+    if (!apiName || !endpoint) {
+      throw new APIError("API name and endpoint are required", 400, "VALIDATION_ERROR")
+    }
+
+    try {
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/api/external/proxy`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            api_name: apiName,
+            endpoint,
+            method,
+            params,
+            json_data: jsonData,
+            headers,
+            api_key: apiKey,
+            base_url: baseUrl,
+          }),
+        },
+        60000, // 60 seconds for external API calls
+      )
+
+      return this.handleResponse(response, "External API proxy")
+    } catch (error) {
+      if (error instanceof APIError) throw error
+      throw new APIError("External API request failed", 0, "NETWORK_ERROR")
+    }
+  }
+
+  async getPubChemData(
+    endpoint: string,
+    params?: Record<string, any>,
+  ): Promise<any> {
+    try {
+      const queryString = params
+        ? `?${new URLSearchParams(params as any).toString()}`
+        : ""
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/api/external/pubchem/${endpoint}${queryString}`,
+      )
+      return this.handleResponse(response, "PubChem API")
+    } catch (error) {
+      if (error instanceof APIError) throw error
+      throw new APIError("PubChem API request failed", 0, "NETWORK_ERROR")
+    }
+  }
+
+  async getChEMBLData(
+    endpoint: string,
+    params?: Record<string, any>,
+  ): Promise<any> {
+    try {
+      const queryString = params
+        ? `?${new URLSearchParams(params as any).toString()}`
+        : ""
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/api/external/chembl/${endpoint}${queryString}`,
+      )
+      return this.handleResponse(response, "ChEMBL API")
+    } catch (error) {
+      if (error instanceof APIError) throw error
+      throw new APIError("ChEMBL API request failed", 0, "NETWORK_ERROR")
+    }
+  }
+
+  async getUniProtData(
+    endpoint: string,
+    params?: Record<string, any>,
+  ): Promise<any> {
+    try {
+      const queryString = params
+        ? `?${new URLSearchParams(params as any).toString()}`
+        : ""
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/api/external/uniprot/${endpoint}${queryString}`,
+      )
+      return this.handleResponse(response, "UniProt API")
+    } catch (error) {
+      if (error instanceof APIError) throw error
+      throw new APIError("UniProt API request failed", 0, "NETWORK_ERROR")
+    }
+  }
+
+  async getPDBData(
+    endpoint: string,
+    params?: Record<string, any>,
+  ): Promise<any> {
+    try {
+      const queryString = params
+        ? `?${new URLSearchParams(params as any).toString()}`
+        : ""
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/api/external/pdb/${endpoint}${queryString}`,
+      )
+      return this.handleResponse(response, "PDB API")
+    } catch (error) {
+      if (error instanceof APIError) throw error
+      throw new APIError("PDB API request failed", 0, "NETWORK_ERROR")
+    }
+  }
+
+  async listAvailableAPIs(): Promise<any> {
+    try {
+      const response = await fetchWithTimeout(`${this.baseUrl}/api/external/apis`)
+      return this.handleResponse(response, "List APIs")
+    } catch (error) {
+      if (error instanceof APIError) throw error
+      throw new APIError("Failed to list available APIs", 0, "NETWORK_ERROR")
+    }
   }
 }
 

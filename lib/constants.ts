@@ -2,7 +2,7 @@
 
 export const APP_NAME = "SNOWFLAKE"
 export const APP_DESCRIPTION = "Advanced Molecular Docking Platform with AI Analysis and Blockchain Verification"
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://snowflake.com"
+export const APP_URL = import.meta.env.VITE_APP_URL || "https://snowflake.com"
 
 // Solana Configuration
 export const SOLANA_NETWORKS = {
@@ -23,7 +23,7 @@ export const SOLANA_NETWORKS = {
   },
 } as const
 
-export const CURRENT_NETWORK = (process.env.NEXT_PUBLIC_SOLANA_NETWORK || "devnet") as keyof typeof SOLANA_NETWORKS
+export const CURRENT_NETWORK = (import.meta.env.VITE_SOLANA_NETWORK || "devnet") as keyof typeof SOLANA_NETWORKS
 
 // Transaction Configuration
 export const TRANSACTION_TIMEOUT = 30000 // 30 seconds
@@ -106,8 +106,10 @@ export const JOB_STATUS = {
 } as const
 
 // API Configuration
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-export const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000"
+export const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
+export const WS_BASE_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000"
+export const REQUEST_TIMEOUT_MS = 30_000
+export const REQUEST_TIMEOUT_AI_MS = 60_000
 
 // File Upload Configuration
 export const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB

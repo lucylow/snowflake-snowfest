@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, Enum as SQLEnum, DateTime, Float, JSON
+from sqlalchemy import Column, String, Text, Enum as SQLEnum, DateTime, Float, JSON, Index
 from sqlalchemy.sql import func
 from backend.database import Base
 import enum
@@ -21,9 +21,9 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id = Column(String, primary_key=True)
-    job_name = Column(String, nullable=False)
-    job_type = Column(SQLEnum(JobType), nullable=False, default=JobType.DOCKING_ONLY)
-    status = Column(SQLEnum(JobStatus), nullable=False, default=JobStatus.SUBMITTED)
+    job_name = Column(String, nullable=False, index=True)
+    job_type = Column(SQLEnum(JobType), nullable=False, default=JobType.DOCKING_ONLY, index=True)
+    status = Column(SQLEnum(JobStatus), nullable=False, default=JobStatus.SUBMITTED, index=True)
     
     # For DOCKING_ONLY jobs
     protein_pdb_path = Column(String, nullable=True)
@@ -45,12 +45,16 @@ class Job(Base):
     ai_report_content = Column(Text, nullable=True)
     
     # Blockchain verification
-    blockchain_tx_hash = Column(String, nullable=True)
+    blockchain_tx_hash = Column(String, nullable=True, index=True)
     structure_hash = Column(String, nullable=True)
     report_hash = Column(String, nullable=True)
     
     # Metadata
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    completed_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+# Add composite indexes for common query patterns
+Index('idx_job_status_created', Job.status, Job.created_at)
+Index('idx_job_type_status', Job.job_type, Job.status)

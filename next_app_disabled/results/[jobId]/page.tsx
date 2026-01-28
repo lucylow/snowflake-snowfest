@@ -18,6 +18,7 @@ import Link from "next/link"
 import { mockDockingResults } from "@/lib/mock-data"
 import { BindingAffinityChart } from "@/components/dashboard/binding-affinity-chart"
 import { RMSDConvergenceChart } from "@/components/dashboard/rmsd-convergence-chart"
+import { DataAnalysisPanel } from "@/components/dashboard/data-analysis-panel"
 
 export default function ResultsPage() {
   const params = useParams()
@@ -251,6 +252,25 @@ export default function ResultsPage() {
 
           <TabsContent value="analysis">
             <AIAnalysisPanel jobId={jobId} />
+          </TabsContent>
+
+          <TabsContent value="data-analysis">
+            <DataAnalysisPanel
+              jobId={jobId}
+              dockingResults={{
+                results: results.poses.map((pose) => ({
+                  ligand_name: `pose_${pose.pose_id}`,
+                  modes: [
+                    {
+                      affinity: pose.score,
+                      rmsd_lb: pose.rmsd,
+                      rmsd_ub: pose.rmsd,
+                    },
+                  ],
+                })),
+                best_score: results.best_pose.score,
+              }}
+            />
           </TabsContent>
 
           <TabsContent value="report">
