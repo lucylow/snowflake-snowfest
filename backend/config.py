@@ -33,8 +33,10 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = Field(default=10, env="DB_MAX_OVERFLOW")
     
     # CORS
+    # Include localhost:8080 (Vite dev/preview), localhost:3000 (Docker/Next). For Lovable,
+    # set CORS_ORIGINS to your frontend URL(s), e.g. "https://your-app.lovable.app" or comma-separated list.
     CORS_ORIGINS: List[str] = Field(
-        default=["http://localhost:3000"],
+        default=["http://localhost:3000", "http://localhost:8080", "http://127.0.0.1:8080", "http://127.0.0.1:3000"],
         env="CORS_ORIGINS"
     )
     CORS_ALLOW_CREDENTIALS: bool = Field(default=True, env="CORS_ALLOW_CREDENTIALS")

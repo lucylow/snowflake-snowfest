@@ -12,6 +12,17 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    // Proxy /api to backend so frontend uses same origin (no CORS) in dev/Lovable preview
+    proxy: {
+      "/api": { target: "http://localhost:8000", changeOrigin: true },
+      "/health": { target: "http://localhost:8000", changeOrigin: true },
+      "/docs": { target: "http://localhost:8000", changeOrigin: true },
+      "/openapi.json": { target: "http://localhost:8000", changeOrigin: true },
+    },
+  },
+  preview: {
+    host: "0.0.0.0",
+    port: 8080,
   },
   plugins: [
     react(),

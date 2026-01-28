@@ -107,7 +107,14 @@ export const JOB_STATUS = {
 } as const
 
 // API Configuration
-export const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
+// In dev with Vite proxy: use "" so /api is same-origin (proxied to backend). Lovable preview works the same.
+// When VITE_API_URL is set (e.g. Lovable backend on different origin), use it. Else production fallback.
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL !== undefined && import.meta.env.VITE_API_URL !== ""
+    ? import.meta.env.VITE_API_URL
+    : import.meta.env.DEV
+      ? ""
+      : "http://localhost:8000"
 export const WS_BASE_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000"
 export const REQUEST_TIMEOUT_MS = 30_000
 export const REQUEST_TIMEOUT_AI_MS = 60_000

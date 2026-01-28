@@ -8,6 +8,7 @@ import asyncio
 import math
 from collections import defaultdict
 import statistics
+import shutil
 
 from backend.config import settings
 
@@ -71,6 +72,10 @@ class GninaExecutionError(DockingError):
 
 async def _gnina_available() -> bool:
     """Check if Gnina executable is available for GPU-accelerated docking."""
+    if not GNINA_PATH or not os.path.exists(GNINA_PATH):
+        logger.debug(f"Gnina executable not found at: {GNINA_PATH}")
+        return False
+    
     try:
         process = await asyncio.create_subprocess_exec(
             GNINA_PATH, "--version",
@@ -79,7 +84,22 @@ async def _gnina_available() -> bool:
         )
         await asyncio.wait_for(process.communicate(), timeout=GNINA_VERSION_CHECK_TIMEOUT)
         return process.returncode == 0
-    except (FileNotFoundError, asyncio.TimeoutExpired, OSError):
+    except FileNotFoundError:
+        logger.warning(f"Gnina executable not found: {GNINA_PATH}")
+        return False
+    except asyncio.TimeoutExpired:
+        logger.warning(f"Gnina version check timed out after {GNINA_VERSION_CHECK_TIMEOUT}s")
+        if process:
+            try:
+                process.kill()
+            except Exception:
+                pass
+        return False
+    except OSError as e:
+        logger.warning(f"OS error checking Gnina availability: {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error checking Gnina availability: {str(e)}")
         return False
 
 async def run_autodock_vina(
@@ -121,9 +141,15 @@ async def run_autodock_vina(
     
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
+    except PermissionError as e:
+        logger.error(f"Permission denied creating docking output directory for job {job_id}: {str(e)}")
+        raise DockingError(f"Permission denied: Cannot create output directory: {str(e)}") from e
     except OSError as e:
         logger.error(f"Failed to create docking output directory for job {job_id}: {str(e)}")
         raise DockingError(f"Cannot create output directory: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error creating output directory for job {job_id}: {str(e)}")
+        raise DockingError(f"Unexpected error creating output directory: {str(e)}") from e
     
     logger.info(f"Starting docking for job {job_id} with {len(ligand_files)} ligand(s)")
     
@@ -138,26 +164,53 @@ async def run_autodock_vina(
         raise ProteinPreparationError(f"Failed to prepare protein: {str(e)}") from e
     
     # Process ligands with optional parallelization
-    all_results = await process_ligands_parallel(
-        protein_pdbqt=protein_pdbqt,
-        ligand_files=ligand_files,
-        parameters=parameters,
-        output_dir=output_dir,
-        job_id=job_id
-    )
+    try:
+        all_results = await process_ligands_parallel(
+            protein_pdbqt=protein_pdbqt,
+            ligand_files=ligand_files,
+            parameters=parameters,
+            output_dir=output_dir,
+            job_id=job_id
+        )
+    except Exception as e:
+        logger.error(f"Error processing ligands for job {job_id}: {str(e)}")
+        raise DockingError(f"Failed to process ligands: {str(e)}") from e
     
-    if not all_results or all(all_results[i].get("binding_affinity") is None for i in range(len(all_results))):
-        raise DockingError("All ligands failed to dock. Check logs for details.")
+    if not all_results:
+        raise DockingError("No results returned from ligand processing. Check logs for details.")
+    
+    if all(all_results[i].get("binding_affinity") is None for i in range(len(all_results))):
+        error_summary = "; ".join([
+            f"{r.get('ligand_name', 'unknown')}: {r.get('error', 'Unknown error')}"
+            for r in all_results if r.get('error')
+        ])
+        raise DockingError(f"All ligands failed to dock. Errors: {error_summary}")
     
     # Sort by binding affinity (best score first), filtering out failed results
     valid_results = [r for r in all_results if r.get("binding_affinity") is not None]
-    valid_results.sort(key=lambda x: x["binding_affinity"])
+    
+    if not valid_results:
+        raise DockingError("No valid docking results found after processing")
+    
+    try:
+        valid_results.sort(key=lambda x: x["binding_affinity"])
+    except (KeyError, TypeError) as e:
+        logger.error(f"Error sorting docking results: {str(e)}")
+        raise DockingError(f"Invalid result structure: {str(e)}") from e
     
     # Calculate comprehensive statistics
-    docking_stats = calculate_docking_statistics(valid_results)
+    try:
+        docking_stats = calculate_docking_statistics(valid_results)
+    except Exception as e:
+        logger.warning(f"Error calculating docking statistics: {str(e)}")
+        docking_stats = {}
     
     # Perform pose clustering for top results
-    clustered_results = perform_pose_clustering(valid_results)
+    try:
+        clustered_results = perform_pose_clustering(valid_results)
+    except Exception as e:
+        logger.warning(f"Error performing pose clustering: {str(e)}")
+        clustered_results = valid_results
     
     docking_summary = {
         "total_ligands": len(ligand_files),
@@ -194,11 +247,21 @@ async def prepare_protein(pdb_path: Path, output_dir: Path) -> Path:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        await check_process.communicate()
+        try:
+            await asyncio.wait_for(check_process.communicate(), timeout=10)
+        except asyncio.TimeoutError:
+            check_process.kill()
+            raise ProteinPreparationError("Open Babel (obabel) version check timed out")
+        
         if check_process.returncode != 0:
             raise ProteinPreparationError("Open Babel (obabel) is not available or not working correctly")
     except FileNotFoundError:
         raise ProteinPreparationError("Open Babel (obabel) command not found. Please install Open Babel.")
+    except PermissionError:
+        raise ProteinPreparationError("Permission denied executing Open Babel (obabel)")
+    except Exception as e:
+        logger.error(f"Error checking obabel availability: {str(e)}")
+        raise ProteinPreparationError(f"Error checking Open Babel: {str(e)}") from e
     
     # Use Open Babel or MGLTools for conversion
     cmd = [
@@ -228,11 +291,21 @@ async def prepare_protein(pdb_path: Path, output_dir: Path) -> Path:
         
         if process.returncode != 0:
             error_msg = stderr.decode('utf-8', errors='replace') if stderr else "Unknown error"
-            logger.error(f"Protein preparation failed: {error_msg}")
+            stdout_msg = stdout.decode('utf-8', errors='replace')[:500] if stdout else ""
+            logger.error(f"Protein preparation failed (return code {process.returncode}): {error_msg}")
+            if stdout_msg:
+                logger.debug(f"Protein preparation stdout: {stdout_msg}")
             raise ProteinPreparationError(f"Protein preparation failed: {error_msg}")
         
         if not pdbqt_path.exists():
             raise ProteinPreparationError(f"Protein PDBQT file was not created: {pdbqt_path}")
+        
+        # Verify file is not empty
+        try:
+            if pdbqt_path.stat().st_size == 0:
+                raise ProteinPreparationError(f"Protein PDBQT file is empty: {pdbqt_path}")
+        except OSError as e:
+            raise ProteinPreparationError(f"Cannot access protein PDBQT file: {str(e)}") from e
         
         return pdbqt_path
     except ProteinPreparationError:
@@ -253,9 +326,15 @@ async def prepare_ligand(ligand_content: str, ligand_name: str, output_dir: Path
     try:
         async with aiofiles.open(sdf_path, 'w') as f:
             await f.write(ligand_content)
+    except PermissionError as e:
+        logger.error(f"Permission denied writing ligand SDF file for {ligand_name}: {str(e)}")
+        raise LigandPreparationError(f"Permission denied: Cannot write ligand file: {str(e)}") from e
     except IOError as e:
         logger.error(f"Failed to write ligand SDF file for {ligand_name}: {str(e)}")
         raise LigandPreparationError(f"Cannot write ligand file: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error writing ligand SDF file for {ligand_name}: {str(e)}")
+        raise LigandPreparationError(f"Unexpected error writing ligand file: {str(e)}") from e
     
     # Convert to PDBQT
     cmd = [
@@ -763,8 +842,14 @@ async def run_vina_docking(
         raise VinaExecutionError(f"Ligand PDBQT file does not exist: {ligand_pdbqt}")
     
     # Validate Vina executable
+    if not VINA_PATH:
+        raise VinaExecutionError("AutoDock Vina path is not configured")
+    
     if not os.path.exists(VINA_PATH):
         raise VinaExecutionError(f"AutoDock Vina executable not found at: {VINA_PATH}")
+    
+    if not os.access(VINA_PATH, os.X_OK):
+        raise VinaExecutionError(f"AutoDock Vina executable is not executable: {VINA_PATH}")
     
     # Parameters are already validated
     center_x = parameters["center_x"]
@@ -819,13 +904,27 @@ async def run_vina_docking(
                 timeout=timeout_seconds
             )
         except asyncio.TimeoutError:
-            process.kill()
+            try:
+                process.kill()
+                await process.wait()
+            except Exception as kill_error:
+                logger.warning(f"Error killing timed-out Vina process: {str(kill_error)}")
             raise VinaExecutionError(f"Vina docking timed out after {timeout_seconds} seconds")
         
         if process.returncode != 0:
             error_msg = stderr.decode('utf-8', errors='replace') if stderr else "Unknown error"
-            logger.error(f"Vina docking failed for {ligand_name}: {error_msg}")
+            stdout_msg = stdout.decode('utf-8', errors='replace')[:500] if stdout else ""
+            logger.error(f"Vina docking failed for {ligand_name} (return code {process.returncode}): {error_msg}")
+            if stdout_msg:
+                logger.debug(f"Vina docking stdout: {stdout_msg}")
             raise VinaExecutionError(f"Vina docking failed: {error_msg}")
+        
+        # Verify output files exist
+        if not log_file.exists():
+            raise VinaExecutionError(f"Vina log file was not created: {log_file}")
+        
+        if not output_pdbqt.exists():
+            raise VinaExecutionError(f"Vina output PDBQT file was not created: {output_pdbqt}")
         
         # Parse results from log file
         try:
@@ -834,6 +933,9 @@ async def run_vina_docking(
         except DockingParseError as e:
             logger.error(f"Failed to parse Vina log for {ligand_name}: {str(e)}")
             raise
+        except Exception as e:
+            logger.error(f"Unexpected error parsing Vina results for {ligand_name}: {str(e)}")
+            raise VinaExecutionError(f"Failed to parse docking results: {str(e)}") from e
     except VinaExecutionError:
         raise
     except Exception as e:
@@ -859,14 +961,26 @@ async def parse_vina_log(log_file: Path, output_pdbqt: Optional[Path] = None) ->
     try:
         async with aiofiles.open(log_file, 'r') as f:
             content = await f.read()
+    except PermissionError as e:
+        raise DockingParseError(f"Permission denied reading log file: {str(e)}") from e
     except IOError as e:
         raise DockingParseError(f"Cannot read log file: {str(e)}") from e
+    except Exception as e:
+        raise DockingParseError(f"Unexpected error reading log file: {str(e)}") from e
     
     if not content:
         raise DockingParseError("Log file is empty")
     
     # Use shared parsing function
-    modes = _parse_docking_modes_from_content(content, tool_name="Vina")
+    try:
+        modes = _parse_docking_modes_from_content(content, tool_name="Vina")
+    except DockingParseError:
+        raise
+    except Exception as e:
+        raise DockingParseError(f"Unexpected error parsing docking modes: {str(e)}") from e
+    
+    if not modes:
+        raise DockingParseError("No docking modes found in log file")
     
     # Calculate additional metrics
     best_affinity = modes[0]["affinity"]
@@ -1026,6 +1140,15 @@ async def run_gnina_docking(
     Run Gnina (GPU-accelerated) molecular docking.
     Uses same PDBQT prep as Vina; Gnina is Vina/smina-compatible.
     """
+    if not GNINA_PATH:
+        raise GninaExecutionError("Gnina path is not configured")
+    
+    if not os.path.exists(GNINA_PATH):
+        raise GninaExecutionError(f"Gnina executable not found at: {GNINA_PATH}")
+    
+    if not os.access(GNINA_PATH, os.X_OK):
+        raise GninaExecutionError(f"Gnina executable is not executable: {GNINA_PATH}")
+    
     if not protein_pdbqt.exists():
         raise GninaExecutionError(f"Protein PDBQT file does not exist: {protein_pdbqt}")
     if not ligand_pdbqt.exists():
@@ -1076,16 +1199,37 @@ async def run_gnina_docking(
                 timeout=timeout_seconds
             )
         except asyncio.TimeoutError:
-            process.kill()
+            try:
+                process.kill()
+                await process.wait()
+            except Exception as kill_error:
+                logger.warning(f"Error killing timed-out Gnina process: {str(kill_error)}")
             raise GninaExecutionError(f"Gnina docking timed out after {timeout_seconds} seconds")
 
         if process.returncode != 0:
             err = stderr.decode("utf-8", errors="replace") if stderr else "Unknown error"
-            logger.error("Gnina docking failed for %s: %s", ligand_name, err)
+            stdout_msg = stdout.decode("utf-8", errors="replace")[:500] if stdout else ""
+            logger.error("Gnina docking failed for %s (return code %d): %s", ligand_name, process.returncode, err)
+            if stdout_msg:
+                logger.debug(f"Gnina docking stdout: {stdout_msg}")
             raise GninaExecutionError(f"Gnina docking failed: {err}")
 
-        result = await parse_gnina_log(log_file, output_pdbqt)
-        return result
+        # Verify output files exist
+        if not log_file.exists():
+            raise GninaExecutionError(f"Gnina log file was not created: {log_file}")
+        
+        if not output_pdbqt.exists():
+            raise GninaExecutionError(f"Gnina output PDBQT file was not created: {output_pdbqt}")
+
+        try:
+            result = await parse_gnina_log(log_file, output_pdbqt)
+            return result
+        except DockingParseError as e:
+            logger.error(f"Failed to parse Gnina log for {ligand_name}: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error parsing Gnina results for {ligand_name}: {str(e)}")
+            raise GninaExecutionError(f"Failed to parse docking results: {str(e)}") from e
     except GninaExecutionError:
         raise
     except Exception as e:
@@ -1103,8 +1247,12 @@ async def parse_gnina_log(log_file: Path, output_pdbqt: Optional[Path] = None) -
     try:
         async with aiofiles.open(log_file, "r") as f:
             content = await f.read()
+    except PermissionError as e:
+        raise DockingParseError(f"Permission denied reading Gnina log file: {str(e)}") from e
     except IOError as e:
-        raise DockingParseError(f"Cannot read Gnina log file: {e}") from e
+        raise DockingParseError(f"Cannot read Gnina log file: {str(e)}") from e
+    except Exception as e:
+        raise DockingParseError(f"Unexpected error reading Gnina log file: {str(e)}") from e
     if not content:
         raise DockingParseError("Gnina log file is empty")
 
@@ -1132,9 +1280,12 @@ async def parse_gnina_log(log_file: Path, output_pdbqt: Optional[Path] = None) -
 
     if not modes:
         raise DockingParseError("No valid docking modes found in Gnina log file")
-
-    best = modes[0]["affinity"]
-    affinity_range = modes[-1]["affinity"] - best if len(modes) > 1 else 0.0
+    
+    try:
+        best = modes[0]["affinity"]
+        affinity_range = modes[-1]["affinity"] - best if len(modes) > 1 else 0.0
+    except (KeyError, IndexError) as e:
+        raise DockingParseError(f"Invalid mode structure in Gnina log: {str(e)}") from e
     out = {
         "binding_affinity": best,
         "modes": modes,
