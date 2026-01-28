@@ -658,7 +658,7 @@ This project is licensed under the MIT License.
 - **shadcn/ui** - UI component library
 - **Radix UI** - Accessible primitives
 - **3Dmol.js** - Molecular visualization
-- **AutoDock Vina** - Docking engine
+- **AutoDock Vina** - Docking engine (Gnina optional for GPU-accelerated docking)
 - **OpenAI** - AI analysis capabilities
 
 ## 📞 Support
