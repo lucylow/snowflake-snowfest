@@ -49,7 +49,15 @@ def adapt_docking_results_for_frontend(
             "interactions": m.get("interactions") or {},
         })
 
-    best_pose = poses[0] if poses else {}
+    best_pose = poses[0] if poses else {
+        "pose_id": 0,
+        "score": 0.0,
+        "binding_energy": 0.0,
+        "rmsd": 0.0,
+        "cluster_id": 1,
+        "pose_file": "",
+        "interactions": {},
+    }
     stats = docking_results.get("statistics") or {}
     metrics = {
         "mean_score": stats.get("mean_score", 0.0),
@@ -80,12 +88,21 @@ def _empty_result(
     protein_structure: str = "",
     ligand_structure: str = "",
 ) -> Dict[str, Any]:
+    empty_pose: Dict[str, Any] = {
+        "pose_id": 0,
+        "score": 0.0,
+        "binding_energy": 0.0,
+        "rmsd": 0.0,
+        "cluster_id": 1,
+        "pose_file": "",
+        "interactions": {},
+    }
     return {
         "job_id": job_id,
         "protein_structure": protein_structure,
         "ligand_structure": ligand_structure,
         "poses": [],
-        "best_pose": {},
+        "best_pose": empty_pose,
         "metrics": {
             "mean_score": 0.0,
             "std_score": 0.0,

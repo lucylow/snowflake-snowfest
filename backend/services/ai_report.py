@@ -839,63 +839,15 @@ async def generate_structured_ai_analysis(
         stakeholder_type = "researcher"
     
     try:
-        # Build context for AI (same as generate_ai_report)
-        context = f"""
-# Protein-Ligand Docking Analysis Report
-Job ID: {job_id}
-
-## Protein Information
-"""
+        # Build context using helper function
+        context = _build_analysis_context(job_id, sequence, plddt_score, docking_results, analysis_type, custom_prompt)
         
-        if sequence:
-            if plddt_score is None:
-                logger.warning(f"pLDDT score is None for job {job_id} with sequence")
-                plddt_score = 0.0
-            
-            context += f"""
-- Sequence Length: {len(sequence)} amino acids
-- Structure Prediction Method: AlphaFold 2
-- Prediction Confidence (pLDDT): {plddt_score:.2f}/100
-- Interpretation: {"High confidence" if plddt_score > 90 else "Medium confidence" if plddt_score > 70 else "Low confidence"}
-"""
-        else:
-            context += """
-- Structure Source: User-provided PDB file
-"""
-        
-        context += f"""
-
-## Docking Results Summary
-- Total Ligands Tested: {docking_results.get('total_ligands', 0)}
-- Successful Ligands: {docking_results.get('successful_ligands', 0)}
-- Failed Ligands: {docking_results.get('failed_ligands', 0)}
-- Best Binding Affinity: {docking_results.get('best_score', 'N/A')} kcal/mol
-- Best Ligand: {docking_results.get('best_ligand', 'N/A')}
-"""
-        
-        # Add statistics if available
-        statistics = docking_results.get('statistics', {})
-        if statistics:
-            context += f"""
-### Statistical Analysis:
-- Mean Binding Affinity: {statistics.get('mean_score', 'N/A'):.2f} kcal/mol
-- Standard Deviation: {statistics.get('std_score', 'N/A'):.2f} kcal/mol
-- Score Range: {statistics.get('min_score', 'N/A'):.2f} to {statistics.get('max_score', 'N/A'):.2f} kcal/mol
-- Median Score: {statistics.get('median_score', 'N/A'):.2f} kcal/mol
-- Number of Clusters: {statistics.get('num_clusters', 'N/A')}
-- Confidence Score: {statistics.get('confidence_score', 'N/A'):.2f}
-- Average Poses per Ligand: {statistics.get('mean_num_modes', 'N/A'):.1f}
-"""
-        
-        context += """
-
-### Top Binding Poses (Detailed):
-"""
-        
+        # Add top binding poses details
         results = docking_results.get('results', [])
         valid_results = [r for r in results if r.get('binding_affinity') is not None]
         valid_results.sort(key=lambda x: x.get('binding_affinity', float('inf')))
         
+        context += "\n### Top Binding Poses (Detailed):\n"
         for idx, result in enumerate(valid_results[:5], 1):
             binding_affinity = result.get('binding_affinity', 'N/A')
             ligand_name = result.get('ligand_name', f'Ligand {idx}')
@@ -925,10 +877,7 @@ Job ID: {job_id}
         # Add clustering information if available
         clustered_results = docking_results.get('clustered_results', [])
         if clustered_results:
-            context += """
-
-### Pose Clustering Analysis:
-"""
+            context += "\n### Pose Clustering Analysis:\n"
             clusters = {}
             for result in clustered_results[:10]:
                 cluster_id = result.get('cluster_id', 'unknown')
@@ -952,25 +901,6 @@ Job ID: {job_id}
 - Grid Size: {parameters_used.get('size_x', 20):.1f} × {parameters_used.get('size_y', 20):.1f} × {parameters_used.get('size_z', 20):.1f} Å
 - Exhaustiveness: {parameters_used.get('exhaustiveness', 8)}
 - Number of Modes: {parameters_used.get('num_modes', 9)}
-"""
-        
-        # Add analysis type specific context
-        if custom_prompt:
-            context += f"""
-
-### Custom Analysis Request:
-{custom_prompt}
-"""
-        elif analysis_type != "comprehensive":
-            analysis_focus = {
-                "binding_affinity": "Focus specifically on binding affinity analysis, interpretation, and validation.",
-                "drug_likeness": "Focus specifically on drug-likeness properties, ADMET predictions, and pharmaceutical development considerations.",
-                "toxicity": "Focus specifically on toxicity predictions, safety profile, and risk assessment."
-            }
-            context += f"""
-
-### Analysis Focus:
-{analysis_focus.get(analysis_type, "")}
 """
         
         # Get stakeholder-specific prompt
@@ -2111,3 +2041,98 @@ Job ID: {job_id}
 """
     
     return context
+
+# ============================================================================
+# CONTEXT-AWARE RECOMMENDATIONS
+# ============================================================================
+
+def get_context_aware_recommendations(
+    job_id: str,
+    docking_results: Dict[str, Any],
+    stakeholder_type: str = "researcher"
+) -> List[str]:
+    """
+    Get context-aware recommendations based on historical data and current results
+    
+    Args:
+        job_id: Unique job identifier
+        docking_results: Docking simulation results
+        stakeholder_type: Target audience
+        
+    Returns:
+        List of context-aware recommendations
+    """
+    recommendations = []
+    
+    # Get conversation history for context
+    history = get_conversation_history(job_id)
+    
+    # Analyze docking results for context
+    best_score = docking_results.get('best_score')
+    statistics = docking_results.get('statistics', {})
+    
+    # Base recommendations on binding affinity
+    if isinstance(best_score, (int, float)):
+        if best_score < -8.0:
+            recommendations.append("Exceptional binding affinity detected. Consider immediate experimental validation with SPR or ITC assays.")
+            recommendations.append("This candidate warrants priority for lead optimization studies.")
+        elif best_score < -7.0:
+            recommendations.append("Strong binding affinity observed. Proceed with molecular dynamics simulations to validate binding stability.")
+            recommendations.append("Consider synthesizing analogs to improve binding affinity further.")
+        elif best_score < -5.0:
+            recommendations.append("Moderate binding affinity. Consider structure-activity relationship (SAR) studies to identify optimization opportunities.")
+            recommendations.append("Review binding mode to identify potential modifications for improved interactions.")
+        else:
+            recommendations.append("Weak binding affinity detected. Consider alternative ligand scaffolds or binding sites.")
+            recommendations.append("Review docking parameters and consider re-docking with different exhaustiveness settings.")
+    
+    # Recommendations based on statistics
+    if statistics:
+        std_score = statistics.get('std_score', 0)
+        if std_score > 2.0:
+            recommendations.append("High variance in binding affinities detected. Consider pose clustering analysis to identify consistent binding modes.")
+        
+        num_clusters = statistics.get('num_clusters', 0)
+        if num_clusters > 5:
+            recommendations.append("Multiple pose clusters identified. Analyze cluster representatives to understand binding mode diversity.")
+    
+    # Stakeholder-specific recommendations
+    if stakeholder_type == "researcher":
+        recommendations.extend([
+            "Perform quantum mechanics calculations for interaction energy refinement",
+            "Conduct experimental binding assays (SPR, ITC) to confirm computational predictions"
+        ])
+    elif stakeholder_type == "clinician":
+        recommendations.extend([
+            "Assess predicted safety profile for clinical translation",
+            "Consider drug-drug interaction potential based on CYP involvement"
+        ])
+    elif stakeholder_type == "investor":
+        recommendations.extend([
+            "Evaluate patent landscape for intellectual property protection",
+            "Assess market opportunity and competitive landscape"
+        ])
+    elif stakeholder_type == "regulator":
+        recommendations.extend([
+            "Prepare comprehensive ADMET profiling for regulatory submission",
+            "Document computational methodology for IND package"
+        ])
+    
+    # Add recommendations based on conversation history
+    if history:
+        recent_questions = [msg["content"] for msg in history[-3:] if msg["role"] == "user"]
+        if any("toxicity" in q.lower() for q in recent_questions):
+            recommendations.append("Based on your interest in toxicity, consider comprehensive toxicity profiling including hERG, CYP, and mutagenicity assays.")
+        if any("optimization" in q.lower() or "improve" in q.lower() for q in recent_questions):
+            recommendations.append("For optimization studies, consider FEP (Free Energy Perturbation) calculations to predict binding affinity changes.")
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_recommendations = []
+    for rec in recommendations:
+        rec_lower = rec.lower().strip()
+        if rec_lower not in seen:
+            seen.add(rec_lower)
+            unique_recommendations.append(rec)
+    
+    return unique_recommendations[:10]  # Return top 10 recommendations

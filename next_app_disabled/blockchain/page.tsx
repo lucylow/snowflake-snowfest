@@ -47,7 +47,7 @@ export default function BlockchainPage() {
           const bal = await solanaClient.getBalance(publicKey)
           setBalance(bal)
         } catch (error) {
-          console.error("[v0] Failed to fetch balance:", error)
+          console.error("[SNOWFLAKE] Failed to fetch balance:", error)
         }
       }
     }
@@ -58,11 +58,11 @@ export default function BlockchainPage() {
   useEffect(() => {
     const fetchCost = async () => {
       try {
-        const sdk = solanaClient.getNeuravivaSDK()
+        const sdk = solanaClient.getSnowflakeSDK()
         const cost = await sdk.estimateTransactionCost()
         setEstimatedCost(cost)
       } catch (error) {
-        console.error("[v0] Failed to estimate cost:", error)
+        console.error("[SNOWFLAKE] Failed to estimate cost:", error)
       }
     }
 
@@ -118,7 +118,7 @@ export default function BlockchainPage() {
         })
       }
     } catch (error) {
-      console.error("[v0] Verification error:", error)
+      console.error("[SNOWFLAKE] Verification error:", error)
       setError("Failed to verify transaction. Please check the signature and try again.")
     } finally {
       setIsVerifying(false)
@@ -146,7 +146,7 @@ export default function BlockchainPage() {
       setBalance(newBalance)
       alert("Airdrop successful! You received 1 SOL.")
     } catch (error) {
-      console.error("[v0] Airdrop error:", error)
+      console.error("[SNOWFLAKE] Airdrop error:", error)
       setError("Failed to request airdrop. Please try again later.")
     } finally {
       setIsRequestingAirdrop(false)
@@ -500,7 +500,7 @@ export default function BlockchainPage() {
                       <h3 className="font-semibold mb-1">Report Generation</h3>
                       <p className="text-sm text-muted-foreground">
                         When you generate a molecular docking report, a cryptographic SHA-256 hash is created from the
-                        report content using our Neuraviva SDK.
+                        report content using our SNOWFLAKE SDK.
                       </p>
                     </div>
                   </div>

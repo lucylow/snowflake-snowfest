@@ -4,8 +4,8 @@ import { Header } from "@/components/landing/header"
 import { Footer } from "@/components/landing/footer"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Beaker, Upload, Activity, CheckCircle, XCircle, Loader2, Eye, Wallet } from "lucide-react"
-import { allMockJobs, healthTechInsights, therapeuticAreas } from "@/lib/mock-data"
+import { Beaker, Upload, Activity, CheckCircle, XCircle, Loader2, Eye, Wallet, RotateCcw } from "lucide-react"
+import { healthTechInsights, therapeuticAreas } from "@/lib/mock-data"
 import { apiClient, APIError, type DockingParameters, type JobStatus } from "@/lib/api-client"
 import { DockingJobCard } from "@/components/dashboard/docking-job-card"
 import { SubmitJobDialog } from "@/components/dashboard/submit-job-dialog"
@@ -21,8 +21,8 @@ import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut"
 export default function Dashboard() {
   const navigate = useNavigate()
   const { connected, publicKey, connect } = useWallet()
-  const [jobs, setJobs] = useState<JobStatus[]>(allMockJobs)
-  const [filteredJobs, setFilteredJobs] = useState<JobStatus[]>(allMockJobs)
+  const [jobs, setJobs] = useState<JobStatus[]>([])
+  const [filteredJobs, setFilteredJobs] = useState<JobStatus[]>([])
   const [isSubmitDialogOpen, setIsSubmitDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
@@ -45,42 +45,45 @@ export default function Dashboard() {
   }, [connected, publicKey])
 
   useEffect(() => {
-    const wsConnections: WebSocket[] = []
-
-    jobs.forEach((job) => {
-      if (
-        job.status === "running" ||
-        job.status === "queued" ||
-        job.status === "predicting_structure" ||
-        job.status === "structure_predicted"
-      ) {
-        try {
-          const ws = apiClient.connectWebSocket(
-            job.job_id,
-            (updatedJob) => {
-              setJobs((prev) => prev.map((j) => (j.job_id === updatedJob.job_id ? updatedJob : j)))
-            },
-            (error) => {
-              console.error("[v0] WebSocket error:", error)
-            },
-          )
-          wsConnections.push(ws)
-        } catch (error) {
-          console.error("[v0] Failed to establish WebSocket connection:", error)
+    let cancelled = false
+    const load = async () => {
+      try {
+        const list = await apiClient.listJobs(0, 100)
+        if (!cancelled) setJobs(list)
+      } catch (e) {
+        if (!cancelled) {
+          setError("Failed to load jobs. Check that the API is running.")
         }
+      } finally {
+        if (!cancelled) setIsInitialLoading(false)
       }
-    })
-
-    return () => {
-      wsConnections.forEach((ws) => {
-        try {
-          ws.close()
-        } catch (error) {
-          console.error("[v0] Error closing WebSocket:", error)
-        }
-      })
     }
-  }, [jobs])
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const inProgress = jobs.some(
+    (j) =>
+      j.status === "queued" ||
+      j.status === "running" ||
+      j.status === "predicting_structure" ||
+      j.status === "structure_predicted" ||
+      j.status === "docking" ||
+      j.status === "analyzing"
+  )
+
+  useEffect(() => {
+    if (!inProgress) return
+    const id = setInterval(async () => {
+      try {
+        const list = await apiClient.listJobs(0, 100)
+        setJobs(list)
+      } catch {
+        // ignore poll errors
+      }
+    }, 5000)
+    return () => clearInterval(id)
+  }, [inProgress])
 
   // Keyboard shortcuts
   useKeyboardShortcut([
@@ -145,99 +148,24 @@ export default function Dashboard() {
     setIsLoading(true)
 
     try {
-      let result
-      try {
-        if (jobType === "sequence_to_docking" && proteinSequence) {
-          // Submit sequence-to-docking job
-          result = await apiClient.submitSequenceDockingJob(
-            `AlphaFold Job ${Date.now()}`,
-            proteinSequence,
-            ligandFile,
-            parameters,
-          )
-        } else if (jobType === "docking_only" && proteinFile) {
-          // Submit docking-only job
-          result = await apiClient.submitDockingJob(proteinFile, ligandFile, parameters)
-        } else {
-          throw new Error("Invalid job configuration")
-        }
-      } catch (apiError) {
-        console.log("[v0] Backend not available, creating mock job")
-        result = {
-          job_id: `mock-${Date.now()}`,
-          status: jobType === "sequence_to_docking" ? "predicting_structure" : "queued",
-          message: "Job submitted successfully (mock mode)",
-        }
-      }
-
-      setJobs((prev) => [
-        {
-          job_id: result.job_id,
-          status: result.status as JobStatus["status"],
-          created_at: new Date().toISOString(),
-          protein_sequence: proteinSequence || undefined,
-        },
-        ...prev,
-      ])
-
-      setIsSubmitDialogOpen(false)
-
-      // Simulate job progression in mock mode
-      if (result.job_id.startsWith("mock-")) {
-        if (jobType === "sequence_to_docking") {
-          // Simulate AlphaFold prediction
-          setTimeout(() => {
-            setJobs((prev) =>
-              prev.map((job) =>
-                job.job_id === result.job_id
-                  ? { ...job, status: "structure_predicted" as const, plddt_score: 85.4 }
-                  : job,
-              ),
-            )
-          }, 2000)
-
-          // Then docking
-          setTimeout(() => {
-            setJobs((prev) =>
-              prev.map((job) => (job.job_id === result.job_id ? { ...job, status: "docking" as const } : job)),
-            )
-          }, 4000)
-
-          // Finally completed
-          setTimeout(() => {
-            setJobs((prev) =>
-              prev.map((job) =>
-                job.job_id === result.job_id
-                  ? {
-                      ...job,
-                      status: "completed" as const,
-                      completed_at: new Date().toISOString(),
-                      top_binding_score: -8.2,
-                    }
-                  : job,
-              ),
-            )
-          }, 6000)
-        } else {
-          // Normal docking workflow
-          setTimeout(() => {
-            setJobs((prev) =>
-              prev.map((job) =>
-                job.job_id === result.job_id
-                  ? { ...job, status: "completed" as const, completed_at: new Date().toISOString() }
-                  : job,
-              ),
-            )
-          }, 3000)
-        }
-      }
-    } catch (error) {
-      console.error("[v0] Failed to submit job:", error)
-      if (error instanceof APIError) {
-        setError(error.message)
+      if (jobType === "sequence_to_docking" && proteinSequence) {
+        await apiClient.submitSequenceDockingJob(
+          `AlphaFold Job ${Date.now()}`,
+          proteinSequence,
+          ligandFile,
+          parameters,
+        )
+      } else if (jobType === "docking_only" && proteinFile) {
+        await apiClient.submitDockingJob(proteinFile, ligandFile, parameters)
       } else {
-        setError("An unexpected error occurred. Please try again.")
+        throw new Error("Invalid job configuration")
       }
+      setIsSubmitDialogOpen(false)
+      const list = await apiClient.listJobs(0, 100)
+      setJobs(list)
+    } catch (err) {
+      if (err instanceof APIError) setError(err.message)
+      else setError("An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }
@@ -249,6 +177,17 @@ export default function Dashboard() {
     } catch (error) {
       console.error("[v0] Navigation error:", error)
       setError("Unable to navigate to results page")
+    }
+  }
+
+  const handleRetryJob = async (jobId: string) => {
+    setError(null)
+    try {
+      const updated = await apiClient.retryJob(jobId)
+      setJobs((prev) => prev.map((j) => (j.job_id === jobId ? updated : j)))
+    } catch (err) {
+      if (err instanceof APIError) setError(err.message)
+      else setError("Failed to retry job.")
     }
   }
 
@@ -396,6 +335,17 @@ export default function Dashboard() {
                           >
                             <Eye className="w-4 h-4" />
                             View Results
+                          </Button>
+                        )}
+                        {job.status === "failed" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full gap-2 bg-transparent"
+                            onClick={() => handleRetryJob(job.job_id)}
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            Retry
                           </Button>
                         )}
                       </div>

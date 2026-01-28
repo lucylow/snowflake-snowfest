@@ -20,7 +20,7 @@ SNOWFLAKE uses Solana blockchain to provide immutable, verifiable storage of mol
 - Transaction signing and confirmation
 - Wallet address display and management
 
-### 3. **Advanced SDK (NeuravivaSDK)**
+### 3. **Advanced SDK (SnowflakeSDK)**
 - Complete TypeScript SDK for blockchain operations
 - Program Derived Address (PDA) generation
 - Transaction cost estimation
@@ -121,14 +121,14 @@ if (reportData) {
 }
 ```
 
-### Using the Neuraviva SDK Directly
+### Using the SNOWFLAKE SDK Directly
 
 ```typescript
-import { NeuravivaSDK } from "@/lib/solana/neuraviva-sdk"
+import { SnowflakeSDK } from "@/lib/solana/snowflake-sdk"
 import { Connection } from "@solana/web3.js"
 
 const connection = new Connection("https://api.devnet.solana.com")
-const sdk = new NeuravivaSDK(connection, "devnet")
+const sdk = new SnowflakeSDK(connection, "devnet")
 
 // Generate report hash
 const hash = sdk.generateReportHash(reportContent)
@@ -184,7 +184,7 @@ Retrieve complete report data from a transaction signature.
 #### `requestAirdrop(publicKey: PublicKey, amount: number): Promise<string>`
 Request SOL airdrop on devnet/testnet (not available on mainnet).
 
-### NeuravivaSDK Methods
+### SnowflakeSDK Methods
 
 #### `generateReportHash(content: string | Buffer): string`
 Generate SHA-256 hash of report content.

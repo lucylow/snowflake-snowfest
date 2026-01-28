@@ -12,7 +12,6 @@ import { ReportGenerator } from "@/components/dashboard/report-generator"
 import { ErrorAlert } from "@/components/ui/error-alert"
 import { apiClient, APIError, type DockingResult } from "@/lib/api-client"
 import { ArrowLeft, Loader2, TrendingDown, Activity, Zap } from "lucide-react"
-import { mockDockingResults } from "@/lib/mock-data"
 import { BindingAffinityChart } from "@/components/dashboard/binding-affinity-chart"
 import { RMSDConvergenceChart } from "@/components/dashboard/rmsd-convergence-chart"
 import { DataAnalysisPanel } from "@/components/dashboard/data-analysis-panel"
@@ -38,25 +37,11 @@ export default function Results() {
 
       try {
         setError(null)
-        // Try API first, which will fall back to mock data automatically
         const data = await apiClient.getDockingResults(jobId)
         setResults(data)
-      } catch (error) {
-        console.error("[v0] Failed to load results:", error)
-        // Last resort: try mock data directly
-        const mockData = mockDockingResults[jobId as keyof typeof mockDockingResults]
-        if (mockData) {
-          console.log("[v0] Using mock data as fallback")
-          setResults(mockData as unknown as DockingResult)
-          setError(null) // Clear error since we have mock data
-        } else {
-          // Only show error if we don't have mock data
-          if (error instanceof APIError) {
-            setError(error.message)
-          } else {
-            setError("Unable to load results. Please try again.")
-          }
-        }
+      } catch (err) {
+        if (err instanceof APIError) setError(err.message)
+        else setError("Unable to load results. Please try again.")
       } finally {
         setIsLoading(false)
       }
@@ -65,32 +50,18 @@ export default function Results() {
     loadResults()
   }, [jobId])
 
-  const handleRetry = () => {
+  const handleRetry = async () => {
     setIsLoading(true)
     setError(null)
-    const loadResults = async () => {
-      try {
-        const data = await apiClient.getDockingResults(jobId)
-        setResults(data)
-      } catch (error) {
-        console.error("[v0] Retry failed, trying mock data:", error)
-        // Fallback to mock data on retry
-        const mockData = mockDockingResults[jobId as keyof typeof mockDockingResults]
-        if (mockData) {
-          setResults(mockData as unknown as DockingResult)
-          setError(null)
-        } else {
-          if (error instanceof APIError) {
-            setError(error.message)
-          } else {
-            setError("Unable to load results. Please try again.")
-          }
-        }
-      } finally {
-        setIsLoading(false)
-      }
+    try {
+      const data = await apiClient.getDockingResults(jobId)
+      setResults(data)
+    } catch (err) {
+      if (err instanceof APIError) setError(err.message)
+      else setError("Unable to load results. Please try again.")
+    } finally {
+      setIsLoading(false)
     }
-    loadResults()
   }
 
   if (isLoading) {
@@ -141,7 +112,8 @@ export default function Results() {
     )
   }
 
-  const safeSelectedPose = Math.min(selectedPose, results.poses.length - 1)
+  const hasPoses = results.poses.length > 0
+  const safeSelectedPose = hasPoses ? Math.min(selectedPose, results.poses.length - 1) : 0
 
   return (
     <div className="min-h-screen">
@@ -207,7 +179,9 @@ export default function Results() {
           </TabsList>
 
           <TabsContent value="visualization" className="space-y-6">
-            {results.poses[safeSelectedPose]?.pose_file ? (
+            {!hasPoses ? (
+              <ErrorAlert title="No poses" message="No docking poses were generated for this job." />
+            ) : results.poses[safeSelectedPose]?.pose_file ? (
               <MoleculeViewer
                 pdbData={results.poses[safeSelectedPose].pose_file}
                 jobId={jobId}
@@ -215,38 +189,42 @@ export default function Results() {
                 title={`Pose ${safeSelectedPose + 1} - Score: ${results.poses[safeSelectedPose].score.toFixed(2)} kcal/mol`}
               />
             ) : (
-              <ErrorAlert title="Visualization Error" message="Unable to load molecular structure data" />
+              <ErrorAlert title="Visualization unavailable" message="Structure data for poses is not available. Metrics and analysis are still shown." />
             )}
-            <div className="grid lg:grid-cols-2 gap-6">
-              <BindingAffinityChart poses={results.poses} />
-              <RMSDConvergenceChart poses={results.poses} />
-            </div>
-            <Card className="shadow-md">
-              <CardHeader>
-                <CardTitle className="text-xl font-bold">Select Pose</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {results.poses.map((pose, idx) => (
-                    <Button
-                      key={pose.pose_id}
-                      variant={selectedPose === idx ? "default" : "outline"}
-                      onClick={() => setSelectedPose(idx)}
-                      className={`flex-col h-auto py-4 transition-all duration-300 ${
-                        selectedPose === idx 
-                          ? "shadow-lg scale-105 border-2 border-primary" 
-                          : "hover:scale-102 hover:shadow-md"
-                      }`}
-                    >
-                      <span className="font-bold text-base mb-1">Pose {idx + 1}</span>
-                      <span className={`text-xs ${selectedPose === idx ? "text-primary-foreground/90" : "text-muted-foreground"}`}>
-                        {pose.score.toFixed(2)} kcal/mol
-                      </span>
-                    </Button>
-                  ))}
+            {hasPoses && (
+              <>
+                <div className="grid lg:grid-cols-2 gap-6">
+                  <BindingAffinityChart poses={results.poses} />
+                  <RMSDConvergenceChart poses={results.poses} />
                 </div>
-              </CardContent>
-            </Card>
+                <Card className="shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-xl font-bold">Select Pose</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {results.poses.map((pose, idx) => (
+                        <Button
+                          key={pose.pose_id}
+                          variant={selectedPose === idx ? "default" : "outline"}
+                          onClick={() => setSelectedPose(idx)}
+                          className={`flex-col h-auto py-4 transition-all duration-300 ${
+                            selectedPose === idx
+                              ? "shadow-lg scale-105 border-2 border-primary"
+                              : "hover:scale-102 hover:shadow-md"
+                          }`}
+                        >
+                          <span className="font-bold text-base mb-1">Pose {idx + 1}</span>
+                          <span className={`text-xs ${selectedPose === idx ? "text-primary-foreground/90" : "text-muted-foreground"}`}>
+                            {pose.score.toFixed(2)} kcal/mol
+                          </span>
+                        </Button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="poses">
@@ -256,32 +234,36 @@ export default function Results() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {results.poses.map((pose, idx) => (
-                    <div
-                      key={pose.pose_id}
-                      className={`flex items-center justify-between p-4 border rounded-lg transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 ${
-                        idx === selectedPose ? "bg-primary/5 border-primary/30" : "hover:bg-muted/50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className={`font-bold text-lg ${idx === selectedPose ? "text-primary" : ""}`}>#{idx + 1}</div>
-                        <div>
-                          <p className="font-semibold text-base">Binding Score: <span className="text-primary">{pose.score.toFixed(2)} kcal/mol</span></p>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            RMSD: {pose.rmsd.toFixed(2)} Å | Cluster: {pose.cluster_id}
-                          </p>
-                        </div>
-                      </div>
-                      <Button 
-                        variant={idx === selectedPose ? "default" : "outline"} 
-                        size="sm" 
-                        onClick={() => setSelectedPose(idx)}
-                        className="transition-all"
+                  {!hasPoses ? (
+                    <p className="text-muted-foreground py-8 text-center">No poses generated for this job.</p>
+                  ) : (
+                    results.poses.map((pose, idx) => (
+                      <div
+                        key={pose.pose_id}
+                        className={`flex items-center justify-between p-4 border rounded-lg transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 ${
+                          idx === selectedPose ? "bg-primary/5 border-primary/30" : "hover:bg-muted/50"
+                        }`}
                       >
-                        {idx === selectedPose ? "Selected" : "View"}
-                      </Button>
-                    </div>
-                  ))}
+                        <div className="flex items-center gap-4">
+                          <div className={`font-bold text-lg ${idx === selectedPose ? "text-primary" : ""}`}>#{idx + 1}</div>
+                          <div>
+                            <p className="font-semibold text-base">Binding Score: <span className="text-primary">{pose.score.toFixed(2)} kcal/mol</span></p>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              RMSD: {pose.rmsd.toFixed(2)} Å | Cluster: {pose.cluster_id}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          variant={idx === selectedPose ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setSelectedPose(idx)}
+                          className="transition-all"
+                        >
+                          {idx === selectedPose ? "Selected" : "View"}
+                        </Button>
+                      </div>
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>

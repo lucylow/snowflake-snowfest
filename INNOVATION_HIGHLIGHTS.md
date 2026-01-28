@@ -35,7 +35,7 @@ SNOW STREAMLINE represents a **first-of-its-kind** integration of cutting-edge t
 - **Impact**: Enables regulatory compliance, peer review verification, investor trust
 
 **Technical Achievement**:
-- Custom Solana SDK (NeuravivaSDK)
+- Custom Solana SDK (SnowflakeSDK)
 - Ultra-low transaction costs (~$0.0001 per report)
 - Public verification without revealing sensitive data
 - Complete audit trail
@@ -156,7 +156,7 @@ SNOW STREAMLINE represents a **first-of-its-kind** integration of cutting-edge t
 **Challenge**: No existing SDK for storing research data on Solana
 
 **Solution**:
-- Custom NeuravivaSDK
+- Custom SnowflakeSDK
 - Program Derived Addresses (PDAs)
 - Metadata optimization
 - Cost-effective storage

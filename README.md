@@ -272,7 +272,7 @@ graph TB
     
     subgraph "Blockchain Layer"
         SOL[Solana Client]
-        SOL --> SOL1[Neuraviva SDK]
+        SOL --> SOL1[SNOWFLAKE SDK]
         SOL --> SOL2[Wallet Adapter]
     end
     
@@ -331,7 +331,7 @@ The diagrams above illustrate different aspects of the SNOWFLAKE platform:
 ### Blockchain
 - **Network**: Solana
 - **Wallet**: Phantom Wallet Adapter
-- **SDK**: Custom Neuraviva SDK
+- **SDK**: Custom SNOWFLAKE SDK
 - **Library**: @solana/web3.js
 
 ### AI & Analysis

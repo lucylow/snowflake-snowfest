@@ -32,7 +32,7 @@ export interface TransactionResult {
   explorerUrl?: string
 }
 
-export class NeuravivaSDK {
+export class SnowflakeSDK {
   private connection: Connection
   private programId: PublicKey
   private network: string
@@ -174,7 +174,7 @@ export class NeuravivaSDK {
         contentLength: typeof reportContent === "string" ? reportContent.length : reportContent.byteLength,
         generatedAt: new Date().toISOString(),
         version: "1.0",
-        sdk: "neuraviva-sdk",
+        sdk: "snowflake-sdk",
       }
 
       const metadataString = JSON.stringify(enhancedMetadata)

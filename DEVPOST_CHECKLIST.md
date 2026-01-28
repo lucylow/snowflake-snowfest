@@ -60,7 +60,7 @@ Use this checklist to ensure your Snow Fest Hackathon submission is complete and
 - [ ] **Blockchain**:
   - [ ] Solana blockchain
   - [ ] Phantom Wallet integration
-  - [ ] Custom Neuraviva SDK
+  - [ ] Custom SNOWFLAKE SDK
 
 - [ ] **APIs/Frameworks Used**:
   - [ ] AlphaFold API/Docker

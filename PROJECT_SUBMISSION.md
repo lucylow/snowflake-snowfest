@@ -123,7 +123,7 @@ Drug discovery is one of the most critical yet challenging processes in healthca
 ### Blockchain
 - **Network**: Solana (devnet/testnet/mainnet)
 - **Wallet**: Phantom Wallet Adapter
-- **SDK**: Custom Neuraviva SDK (@solana/web3.js)
+- **SDK**: Custom SNOWFLAKE SDK (@solana/web3.js)
 - **Transaction Cost**: ~0.000005 SOL per report
 
 ### Infrastructure

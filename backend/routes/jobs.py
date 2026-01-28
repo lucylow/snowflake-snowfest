@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Body
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Body, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
@@ -9,7 +9,7 @@ import json
 
 from backend.database import get_db
 from backend.schemas import JobCreate, JobResponse, AIAnalysisRequest, AIAnalysisResponse, AlphaFoldPredictionRequest, AlphaFoldPredictionResponse
-from backend.models import Job, JobType, JobStatus, JobStatus
+from backend.models import Job, JobType, JobStatus
 from backend.services.workflow import run_alphafold_then_dock, run_docking_only, run_alphafold_only
 from backend.services.ai_report import (
     generate_structured_ai_analysis, 
@@ -106,6 +106,77 @@ async def create_job(
     except Exception as e:
         logger.error(f"Unexpected error in create_job: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/jobs/upload", response_model=JobResponse)
+async def create_job_upload(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    job_name: str = Form(...),
+    job_type: str = Form(...),
+    protein_pdb: str | None = Form(None),
+    protein_sequence: str | None = Form(None),
+    docking_parameters: str = Form(...),
+    ligand_file: UploadFile = File(...),
+):
+    """Create a job via multipart form (file upload). Frontend-friendly alternative to JSON POST /jobs."""
+    if job_type not in ("docking_only", "sequence_to_docking"):
+        raise HTTPException(status_code=400, detail="job_type must be docking_only or sequence_to_docking")
+    if job_type == "sequence_to_docking" and not (protein_sequence and protein_sequence.strip()):
+        raise HTTPException(status_code=400, detail="protein_sequence is required for sequence_to_docking")
+    if job_type == "docking_only" and not (protein_pdb and protein_pdb.strip()):
+        raise HTTPException(status_code=400, detail="protein_pdb is required for docking_only")
+    fn = (ligand_file.filename or "").lower()
+    if not (fn.endswith(".sdf") or fn.endswith(".mol2")):
+        raise HTTPException(status_code=400, detail="Ligand file must be SDF or MOL2")
+    try:
+        params = json.loads(docking_parameters)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid docking_parameters JSON: {e}") from e
+    content = await ligand_file.read()
+    try:
+        ligand_content = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Ligand file must be UTF-8 text (SDF/MOL2)")
+    ligand_files = [ligand_content]
+    job_id = str(uuid.uuid4())
+    db_job = Job(
+        id=job_id,
+        job_name=job_name or f"Job {job_id[:8]}",
+        job_type=JobType(job_type),
+        protein_sequence=protein_sequence.strip() if job_type == "sequence_to_docking" and protein_sequence else None,
+        ligand_files=ligand_files,
+        docking_parameters=params,
+    )
+    try:
+        db.add(db_job)
+        await db.commit()
+        await db.refresh(db_job)
+    except SQLAlchemyError as e:
+        logger.error(f"Database error creating job: {str(e)}", exc_info=True)
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to create job")
+    try:
+        if job_type == "sequence_to_docking":
+            background_tasks.add_task(
+                run_alphafold_then_dock,
+                job_id=job_id,
+                sequence=protein_sequence.strip(),
+                ligand_files=ligand_files,
+                parameters=params,
+            )
+        else:
+            background_tasks.add_task(
+                run_docking_only,
+                job_id=job_id,
+                protein_pdb=protein_pdb.strip(),
+                ligand_files=ligand_files,
+                parameters=params,
+            )
+    except Exception as e:
+        logger.error(f"Failed to submit background task for job {job_id}: {str(e)}", exc_info=True)
+    return db_job
+
 
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):

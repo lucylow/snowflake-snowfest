@@ -78,6 +78,29 @@ export interface JobStatus {
   top_binding_score?: number
   ai_report_content?: string
   blockchain_tx_hash?: string
+  job_type?: string
+  quality_metrics?: Record<string, unknown>
+}
+
+/** Map backend job (id, error_message, status) to JobStatus (job_id, error, status). */
+function mapBackendJobToStatus(raw: Record<string, unknown>): JobStatus {
+  const status = raw.status === "submitted" ? "queued" : (raw.status as JobStatus["status"])
+  return {
+    job_id: (raw.id as string) ?? (raw.job_id as string),
+    status,
+    created_at: (raw.created_at as string) ?? new Date().toISOString(),
+    completed_at: raw.completed_at as string | undefined,
+    error: (raw.error_message as string) ?? (raw.error as string),
+    progress: raw.progress as number | undefined,
+    protein_sequence: raw.protein_sequence as string | undefined,
+    predicted_pdb_path: raw.predicted_pdb_path as string | undefined,
+    plddt_score: raw.plddt_score as number | undefined,
+    top_binding_score: raw.top_binding_score as number | undefined,
+    ai_report_content: raw.ai_report_content as string | undefined,
+    blockchain_tx_hash: raw.blockchain_tx_hash as string | undefined,
+    job_type: raw.job_type as string | undefined,
+    quality_metrics: raw.quality_metrics as Record<string, unknown> | undefined,
+  }
 }
 
 export interface AIAnalysisRequest {
@@ -237,7 +260,7 @@ class APIClient {
     }
   }
 
-  // Submit docking job
+  // Submit docking job (multipart upload)
   async submitDockingJob(
     proteinFile: File,
     ligandFile: File,
@@ -263,12 +286,18 @@ class APIClient {
       formData.append("ligand_file", ligandFile)
       formData.append("docking_parameters", JSON.stringify(parameters))
 
-      const response = await fetchWithTimeout(`${this.baseUrl}/api/jobs`, {
+      const response = await fetchWithTimeout(`${this.baseUrl}/api/jobs/upload`, {
         method: "POST",
         body: formData,
       })
 
-      return this.handleResponse(response, "Job submission")
+      const job = await this.handleResponse<{ id: string; status: string }>(response, "Job submission")
+      const status = job.status === "submitted" ? "queued" : job.status
+      return {
+        job_id: job.id,
+        status,
+        message: "Job submitted successfully",
+      }
     } catch (error) {
       if (error instanceof APIError) throw error
       throw new APIError("Network error - unable to connect to server", 0, "NETWORK_ERROR")
@@ -301,15 +330,52 @@ class APIClient {
       formData.append("ligand_file", ligandFile)
       formData.append("docking_parameters", JSON.stringify(parameters))
 
-      const response = await fetchWithTimeout(`${this.baseUrl}/api/jobs`, {
+      const response = await fetchWithTimeout(`${this.baseUrl}/api/jobs/upload`, {
         method: "POST",
         body: formData,
       })
 
-      return this.handleResponse(response, "Sequence docking job submission")
+      const job = await this.handleResponse<{ id: string; status: string }>(response, "Sequence docking job submission")
+      const status = job.status === "submitted" ? "queued" : job.status
+      return {
+        job_id: job.id,
+        status,
+        message: "Job submitted successfully",
+      }
     } catch (error) {
       if (error instanceof APIError) throw error
       throw new APIError("Network error - unable to connect to server", 0, "NETWORK_ERROR")
+    }
+  }
+
+  /** List jobs with optional pagination. */
+  async listJobs(skip = 0, limit = 20): Promise<JobStatus[]> {
+    try {
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/api/jobs?skip=${skip}&limit=${limit}`,
+      )
+      const raw = (await this.handleResponse(response, "List jobs")) as Record<string, unknown>[]
+      return raw.map((j) => mapBackendJobToStatus(j))
+    } catch (error) {
+      if (error instanceof APIError) throw error
+      throw new APIError("Unable to list jobs", 0, "NETWORK_ERROR")
+    }
+  }
+
+  /** Retry a failed job. */
+  async retryJob(jobId: string): Promise<JobStatus> {
+    if (!jobId) {
+      throw new APIError("Job ID is required", 400, "VALIDATION_ERROR")
+    }
+    try {
+      const response = await fetchWithTimeout(`${this.baseUrl}/api/jobs/${jobId}/retry`, {
+        method: "POST",
+      })
+      const raw = (await this.handleResponse(response, "Retry job")) as Record<string, unknown>
+      return mapBackendJobToStatus(raw)
+    } catch (error) {
+      if (error instanceof APIError) throw error
+      throw new APIError("Unable to retry job", 0, "NETWORK_ERROR")
     }
   }
 
@@ -321,29 +387,30 @@ class APIClient {
 
     try {
       const response = await fetchWithTimeout(`${this.baseUrl}/api/jobs/${jobId}`)
-      return this.handleResponse(response, "Status check")
+      const raw = (await this.handleResponse(response, "Status check")) as Record<string, unknown>
+      return mapBackendJobToStatus(raw)
     } catch (error) {
       if (error instanceof APIError) throw error
       throw new APIError("Unable to retrieve job status", 0, "NETWORK_ERROR")
     }
   }
 
-  // Get docking results
+  // Get docking results (frontend-shaped from GET /api/jobs/{id}/results)
   async getDockingResults(jobId: string): Promise<DockingResult> {
     if (!jobId) {
       throw new APIError("Job ID is required", 400, "VALIDATION_ERROR")
     }
 
     try {
-      const response = await fetchWithTimeout(`${this.baseUrl}/api/docking/results/${jobId}`)
-      return this.handleResponse(response, "Results retrieval")
+      const response = await fetchWithTimeout(`${this.baseUrl}/api/jobs/${jobId}/results`)
+      return this.handleResponse(response, "Results retrieval") as Promise<DockingResult>
     } catch (error) {
       if (error instanceof APIError) throw error
       throw new APIError("Unable to retrieve docking results", 0, "NETWORK_ERROR")
     }
   }
 
-  // Analyze with AI
+  // Analyze with AI (POST /api/jobs/{id}/analyze)
   async analyzeWithAI(request: AIAnalysisRequest): Promise<any> {
     if (!request.job_id) {
       throw new APIError("Job ID is required for analysis", 400, "VALIDATION_ERROR")
@@ -351,13 +418,17 @@ class APIClient {
 
     try {
       const response = await fetchWithTimeout(
-        `${this.baseUrl}/api/ai/analyze`,
+        `${this.baseUrl}/api/jobs/${request.job_id}/analyze`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(request),
+          body: JSON.stringify({
+            analysis_type: request.analysis_type,
+            custom_prompt: request.custom_prompt,
+            stakeholder_type: request.stakeholder_type ?? "researcher",
+          }),
         },
         REQUEST_TIMEOUT_AI_MS,
       )
@@ -417,7 +488,7 @@ class APIClient {
     }
 
     try {
-      const response = await fetchWithTimeout(`${this.baseUrl}/api/solana/verify/${txHash}`)
+      const response = await fetchWithTimeout(`${this.baseUrl}/api/blockchain/verify/${txHash}`)
       return this.handleResponse(response, "Transaction verification")
     } catch (error) {
       if (error instanceof APIError) throw error
