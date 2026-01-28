@@ -1,6 +1,7 @@
 import os
 import hashlib
 import logging
+import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -99,44 +100,89 @@ async def store_on_solana(verification_data: Dict[str, Any]) -> str:
         
     Returns:
         Transaction signature/hash
+        
+    Raises:
+        BlockchainError: If blockchain operation fails
     """
+    from backend.exceptions import BlockchainError
     
-    # Serialize data for on-chain storage
-    memo_data = json.dumps(verification_data, separators=(',', ':'))
-    
-    # Create transaction payload
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "sendTransaction",
-        "params": [
-            {
-                "memo": memo_data[:1232],  # Solana memo limit
-                "recentBlockhash": await get_recent_blockhash(),
-                "feePayer": get_public_key_from_private(SOLANA_PRIVATE_KEY)
-            }
-        ]
-    }
-    
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            SOLANA_RPC_URL,
-            json=payload,
-            headers={"Content-Type": "application/json"}
-        )
+    try:
+        # Serialize data for on-chain storage
+        memo_data = json.dumps(verification_data, separators=(',', ':'))
         
-        if response.status_code != 200:
-            raise RuntimeError(f"Solana RPC error: {response.text}")
+        if len(memo_data) > 1232:
+            logger.warning(f"Memo data too long ({len(memo_data)} chars), truncating to 1232 chars")
+            memo_data = memo_data[:1232]
         
-        result = response.json()
+        # Get recent blockhash with retry
+        max_retries = 3
+        recent_blockhash = None
+        for attempt in range(max_retries):
+            try:
+                recent_blockhash = await get_recent_blockhash()
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise BlockchainError(f"Failed to get recent blockhash after {max_retries} attempts: {str(e)}")
+                logger.warning(f"Failed to get blockhash (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                await asyncio.sleep(1)
         
-        if "error" in result:
-            raise RuntimeError(f"Solana transaction error: {result['error']}")
+        # Create transaction payload
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "sendTransaction",
+            "params": [
+                {
+                    "memo": memo_data,
+                    "recentBlockhash": recent_blockhash,
+                    "feePayer": get_public_key_from_private(SOLANA_PRIVATE_KEY)
+                }
+            ]
+        }
         
-        return result["result"]
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                response = await client.post(
+                    SOLANA_RPC_URL,
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+            except httpx.TimeoutException:
+                raise BlockchainError("Solana RPC request timed out after 30 seconds")
+            except httpx.NetworkError as e:
+                raise BlockchainError(f"Network error connecting to Solana RPC: {str(e)}")
+            except httpx.RequestError as e:
+                raise BlockchainError(f"Request error to Solana RPC: {str(e)}")
+            
+            if response.status_code != 200:
+                error_text = response.text[:500] if response.text else "Unknown error"
+                raise BlockchainError(f"Solana RPC error (status {response.status_code}): {error_text}")
+            
+            try:
+                result = response.json()
+            except ValueError as e:
+                logger.error(f"Invalid JSON response from Solana RPC: {str(e)}")
+                raise BlockchainError("Invalid response format from Solana RPC")
+            
+            if "error" in result:
+                error_info = result["error"]
+                error_msg = error_info.get("message", "Unknown error") if isinstance(error_info, dict) else str(error_info)
+                raise BlockchainError(f"Solana transaction error: {error_msg}")
+            
+            if "result" not in result:
+                raise BlockchainError("No result in Solana RPC response")
+            
+            return result["result"]
+    except BlockchainError:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error storing on Solana: {str(e)}", exc_info=True)
+        raise BlockchainError(f"Unexpected error storing on blockchain: {str(e)}")
 
 async def get_recent_blockhash() -> str:
     """Get recent blockhash from Solana"""
+    from backend.exceptions import BlockchainError
     
     payload = {
         "jsonrpc": "2.0",
@@ -145,15 +191,49 @@ async def get_recent_blockhash() -> str:
         "params": []
     }
     
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(
-            SOLANA_RPC_URL,
-            json=payload,
-            headers={"Content-Type": "application/json"}
-        )
-        
-        result = response.json()
-        return result["result"]["value"]["blockhash"]
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.post(
+                    SOLANA_RPC_URL,
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+            except httpx.TimeoutException:
+                raise BlockchainError("Solana RPC request timed out")
+            except httpx.NetworkError as e:
+                raise BlockchainError(f"Network error connecting to Solana RPC: {str(e)}")
+            except httpx.RequestError as e:
+                raise BlockchainError(f"Request error to Solana RPC: {str(e)}")
+            
+            if response.status_code != 200:
+                error_text = response.text[:500] if response.text else "Unknown error"
+                raise BlockchainError(f"Solana RPC error (status {response.status_code}): {error_text}")
+            
+            try:
+                result = response.json()
+            except ValueError as e:
+                logger.error(f"Invalid JSON response from Solana RPC: {str(e)}")
+                raise BlockchainError("Invalid response format from Solana RPC")
+            
+            if "error" in result:
+                error_info = result["error"]
+                error_msg = error_info.get("message", "Unknown error") if isinstance(error_info, dict) else str(error_info)
+                raise BlockchainError(f"Solana RPC error: {error_msg}")
+            
+            if "result" not in result or "value" not in result["result"]:
+                raise BlockchainError("Invalid response structure from Solana RPC")
+            
+            blockhash = result["result"]["value"].get("blockhash")
+            if not blockhash:
+                raise BlockchainError("No blockhash in Solana RPC response")
+            
+            return blockhash
+    except BlockchainError:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error getting blockhash: {str(e)}", exc_info=True)
+        raise BlockchainError(f"Unexpected error getting blockhash: {str(e)}")
 
 def get_public_key_from_private(private_key: str) -> str:
     """Extract public key from private key (simplified)"""
@@ -171,6 +251,14 @@ async def verify_blockchain_record(tx_hash: str) -> Dict[str, Any]:
     Returns:
         Verification data from blockchain
     """
+    from backend.exceptions import BlockchainError
+    
+    if not tx_hash or not tx_hash.strip():
+        return {
+            "verified": False,
+            "message": "Transaction hash is required",
+            "tx_hash": tx_hash or "None"
+        }
     
     if tx_hash.startswith("mock_tx_") or tx_hash.startswith("error_mock_"):
         return {
@@ -188,18 +276,65 @@ async def verify_blockchain_record(tx_hash: str) -> Dict[str, Any]:
         }
         
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                SOLANA_RPC_URL,
-                json=payload,
-                headers={"Content-Type": "application/json"}
-            )
-            
-            result = response.json()
-            
-            if "error" in result:
+            try:
+                response = await client.post(
+                    SOLANA_RPC_URL,
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+            except httpx.TimeoutException:
                 return {
                     "verified": False,
-                    "message": "Transaction not found on blockchain",
+                    "message": "Verification request timed out",
+                    "tx_hash": tx_hash
+                }
+            except httpx.NetworkError as e:
+                logger.error(f"Network error verifying transaction {tx_hash}: {str(e)}")
+                return {
+                    "verified": False,
+                    "message": f"Network error: {str(e)}",
+                    "tx_hash": tx_hash
+                }
+            except httpx.RequestError as e:
+                logger.error(f"Request error verifying transaction {tx_hash}: {str(e)}")
+                return {
+                    "verified": False,
+                    "message": f"Request error: {str(e)}",
+                    "tx_hash": tx_hash
+                }
+            
+            if response.status_code != 200:
+                error_text = response.text[:500] if response.text else "Unknown error"
+                logger.error(f"Solana RPC error verifying transaction {tx_hash}: status {response.status_code}, {error_text}")
+                return {
+                    "verified": False,
+                    "message": f"RPC error (status {response.status_code})",
+                    "tx_hash": tx_hash
+                }
+            
+            try:
+                result = response.json()
+            except ValueError as e:
+                logger.error(f"Invalid JSON response verifying transaction {tx_hash}: {str(e)}")
+                return {
+                    "verified": False,
+                    "message": "Invalid response format",
+                    "tx_hash": tx_hash
+                }
+            
+            if "error" in result:
+                error_info = result["error"]
+                error_msg = error_info.get("message", "Transaction not found") if isinstance(error_info, dict) else str(error_info)
+                return {
+                    "verified": False,
+                    "message": error_msg,
+                    "tx_hash": tx_hash
+                }
+            
+            if "result" not in result:
+                return {
+                    "verified": False,
+                    "message": "No result in response",
                     "tx_hash": tx_hash
                 }
             
@@ -211,7 +346,7 @@ async def verify_blockchain_record(tx_hash: str) -> Dict[str, Any]:
             }
             
     except Exception as e:
-        logger.error(f"Failed to verify transaction {tx_hash}: {str(e)}")
+        logger.error(f"Failed to verify transaction {tx_hash}: {str(e)}", exc_info=True)
         return {
             "verified": False,
             "message": f"Verification error: {str(e)}",

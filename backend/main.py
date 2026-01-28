@@ -9,6 +9,18 @@ import traceback
 
 from backend.routes import jobs, health, blockchain, statistics
 from backend.database import init_db
+from backend.exceptions import (
+    BackendError,
+    ValidationError,
+    NotFoundError,
+    DatabaseError,
+    ServiceError,
+    AlphaFoldError,
+    DockingError,
+    AIReportError,
+    BlockchainError,
+    FileProcessingError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +57,80 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
     )
 
+@app.exception_handler(ValidationError)
+async def custom_validation_exception_handler(request: Request, exc: ValidationError):
+    """Handle custom validation errors"""
+    logger.warning(f"Validation error on {request.url.path}: {exc.message}")
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={
+            "detail": exc.message,
+            "message": "Validation failed",
+            "details": exc.details
+        }
+    )
+
+@app.exception_handler(NotFoundError)
+async def not_found_exception_handler(request: Request, exc: NotFoundError):
+    """Handle not found errors"""
+    logger.info(f"Resource not found on {request.url.path}: {exc.message}")
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={
+            "detail": exc.message,
+            "message": "Resource not found",
+            "details": exc.details
+        }
+    )
+
+@app.exception_handler(DatabaseError)
+async def database_exception_handler(request: Request, exc: DatabaseError):
+    """Handle database errors"""
+    logger.error(f"Database error on {request.url.path}: {exc.message}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": "Database operation failed",
+            "message": exc.message,
+            "details": exc.details
+        }
+    )
+
+@app.exception_handler(ServiceError)
+async def service_exception_handler(request: Request, exc: ServiceError):
+    """Handle service errors"""
+    logger.error(f"Service error on {request.url.path}: {exc.message}", exc_info=True)
+    
+    # Map specific service errors to appropriate status codes
+    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    if isinstance(exc, (AlphaFoldError, DockingError, AIReportError)):
+        status_code = status.HTTP_502_BAD_GATEWAY  # Service unavailable
+    elif isinstance(exc, BlockchainError):
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "detail": exc.message,
+            "message": "Service error",
+            "details": exc.details,
+            "error_type": exc.__class__.__name__
+        }
+    )
+
+@app.exception_handler(FileProcessingError)
+async def file_processing_exception_handler(request: Request, exc: FileProcessingError):
+    """Handle file processing errors"""
+    logger.error(f"File processing error on {request.url.path}: {exc.message}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={
+            "detail": exc.message,
+            "message": "File processing failed",
+            "details": exc.details
+        }
+    )
+
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
     """Handle 404 errors"""
@@ -53,6 +139,23 @@ async def not_found_handler(request: Request, exc):
         content={
             "detail": f"Endpoint not found: {request.url.path}",
             "message": "Resource not found"
+        }
+    )
+
+@app.exception_handler(BackendError)
+async def backend_exception_handler(request: Request, exc: BackendError):
+    """Handle all backend errors"""
+    logger.error(
+        f"Backend error on {request.method} {request.url.path}: {exc.message}",
+        exc_info=True
+    )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": exc.message,
+            "message": "Backend error",
+            "details": exc.details,
+            "error_type": exc.__class__.__name__
         }
     )
 

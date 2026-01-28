@@ -20,11 +20,18 @@ async def update_job_status(
     **kwargs
 ):
     """Update job status in database"""
+    from sqlalchemy.exc import SQLAlchemyError
+    from backend.exceptions import DatabaseError
+    
     async with async_session_maker() as session:
-        result = await session.execute(select(Job).where(Job.id == job_id))
-        job = result.scalar_one_or_none()
-        
-        if job:
+        try:
+            result = await session.execute(select(Job).where(Job.id == job_id))
+            job = result.scalar_one_or_none()
+            
+            if not job:
+                logger.warning(f"Job {job_id} not found when updating status")
+                return
+            
             job.status = status
             if error_message:
                 job.error_message = error_message
@@ -32,13 +39,24 @@ async def update_job_status(
             # Update additional fields
             for key, value in kwargs.items():
                 if hasattr(job, key):
-                    setattr(job, key, value)
+                    try:
+                        setattr(job, key, value)
+                    except Exception as e:
+                        logger.warning(f"Failed to set {key} for job {job_id}: {str(e)}")
             
             if status == JobStatus.COMPLETED:
                 job.completed_at = datetime.now()
             
             await session.commit()
             logger.info(f"Job {job_id} status updated to {status}")
+        except SQLAlchemyError as e:
+            logger.error(f"Database error updating job {job_id} status: {str(e)}", exc_info=True)
+            await session.rollback()
+            raise DatabaseError(f"Failed to update job status: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error updating job {job_id} status: {str(e)}", exc_info=True)
+            await session.rollback()
+            raise
 
 async def run_alphafold_then_dock(
     job_id: str,
@@ -128,12 +146,15 @@ async def run_alphafold_then_dock(
         logger.info(f"Job {job_id} completed successfully")
         
     except Exception as e:
-        logger.error(f"Error in workflow for job {job_id}: {str(e)}")
-        await update_job_status(
-            job_id,
-            JobStatus.FAILED,
-            error_message=str(e)
-        )
+        logger.error(f"Error in workflow for job {job_id}: {str(e)}", exc_info=True)
+        try:
+            await update_job_status(
+                job_id,
+                JobStatus.FAILED,
+                error_message=str(e)
+            )
+        except Exception as status_error:
+            logger.error(f"Failed to update job status to FAILED for job {job_id}: {str(status_error)}", exc_info=True)
         raise
 
 async def run_docking_only(
@@ -156,12 +177,21 @@ async def run_docking_only(
         logger.info(f"Saving uploaded PDB for job {job_id}")
         
         import aiofiles
-        pdb_dir = Path(f"/workspace/uploads/{job_id}")
-        pdb_dir.mkdir(parents=True, exist_ok=True)
-        pdb_path = pdb_dir / "protein.pdb"
+        from backend.exceptions import FileProcessingError
         
-        async with aiofiles.open(pdb_path, 'w') as f:
-            await f.write(protein_pdb)
+        try:
+            pdb_dir = Path(f"/workspace/uploads/{job_id}")
+            pdb_dir.mkdir(parents=True, exist_ok=True)
+            pdb_path = pdb_dir / "protein.pdb"
+            
+            async with aiofiles.open(pdb_path, 'w') as f:
+                await f.write(protein_pdb)
+        except OSError as e:
+            logger.error(f"Failed to create directory or write PDB file for job {job_id}: {str(e)}")
+            raise FileProcessingError(f"Failed to save uploaded PDB file: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error saving PDB file for job {job_id}: {str(e)}", exc_info=True)
+            raise FileProcessingError(f"Unexpected error saving PDB file: {str(e)}")
         
         await update_job_status(
             job_id,
@@ -225,10 +255,13 @@ async def run_docking_only(
         logger.info(f"Job {job_id} completed successfully")
         
     except Exception as e:
-        logger.error(f"Error in docking workflow for job {job_id}: {str(e)}")
-        await update_job_status(
-            job_id,
-            JobStatus.FAILED,
-            error_message=str(e)
-        )
+        logger.error(f"Error in docking workflow for job {job_id}: {str(e)}", exc_info=True)
+        try:
+            await update_job_status(
+                job_id,
+                JobStatus.FAILED,
+                error_message=str(e)
+            )
+        except Exception as status_error:
+            logger.error(f"Failed to update job status to FAILED for job {job_id}: {str(status_error)}", exc_info=True)
         raise

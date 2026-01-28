@@ -1,5 +1,3 @@
-"use client"
-
 import type React from "react"
 import { createContext, useContext, useEffect, useState, useCallback } from "react"
 import type { PublicKey } from "@solana/web3.js"

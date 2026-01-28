@@ -106,7 +106,13 @@ class APIError extends Error {
   }
 }
 
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = REQUEST_TIMEOUT_MS): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeout = REQUEST_TIMEOUT_MS,
+  retries = 0,
+  maxRetries = 3
+): Promise<Response> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeout)
 
@@ -116,9 +122,36 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
       signal: controller.signal,
     })
     clearTimeout(timeoutId)
+    
+    // Retry on 5xx errors (server errors)
+    if (!response.ok && response.status >= 500 && retries < maxRetries) {
+      const retryDelay = Math.min(1000 * Math.pow(2, retries), 10000) // Exponential backoff, max 10s
+      console.warn(`Server error ${response.status}, retrying in ${retryDelay}ms (attempt ${retries + 1}/${maxRetries})`)
+      await new Promise(resolve => setTimeout(resolve, retryDelay))
+      return fetchWithTimeout(url, options, timeout, retries + 1, maxRetries)
+    }
+    
     return response
   } catch (error) {
     clearTimeout(timeoutId)
+    
+    // Retry on network errors
+    if (retries < maxRetries) {
+      const isNetworkError = error instanceof Error && (
+        error.name === "AbortError" ||
+        error.message.includes("Failed to fetch") ||
+        error.message.includes("NetworkError") ||
+        error.message.includes("TypeError")
+      )
+      
+      if (isNetworkError) {
+        const retryDelay = Math.min(1000 * Math.pow(2, retries), 10000) // Exponential backoff
+        console.warn(`Network error, retrying in ${retryDelay}ms (attempt ${retries + 1}/${maxRetries})`)
+        await new Promise(resolve => setTimeout(resolve, retryDelay))
+        return fetchWithTimeout(url, options, timeout, retries + 1, maxRetries)
+      }
+    }
+    
     if (error instanceof Error) {
       if (error.name === "AbortError") {
         throw new APIError("Request timeout - please try again", 408, "TIMEOUT")
@@ -144,17 +177,62 @@ class APIClient {
   private async handleResponse<T>(response: Response, operation: string): Promise<T> {
     if (!response.ok) {
       let errorMessage = `${operation} failed`
+      let errorDetails: any = null
+      
       try {
         const errorData = await response.json()
         errorMessage = errorData.detail || errorData.message || errorMessage
+        errorDetails = errorData
+        
+        // Provide more specific error messages based on status code
+        if (response.status === 400) {
+          errorMessage = errorData.detail || "Invalid request. Please check your input."
+        } else if (response.status === 401) {
+          errorMessage = "Authentication required. Please log in."
+        } else if (response.status === 403) {
+          errorMessage = "You don't have permission to perform this action."
+        } else if (response.status === 404) {
+          errorMessage = errorData.detail || "Resource not found."
+        } else if (response.status === 422) {
+          errorMessage = errorData.detail || "Validation error. Please check your input."
+        } else if (response.status === 429) {
+          errorMessage = "Too many requests. Please try again later."
+        } else if (response.status >= 500) {
+          errorMessage = errorData.message || "Server error. Please try again later."
+        }
       } catch {
-        errorMessage = `${operation} failed: ${response.statusText}`
+        // If JSON parsing fails, use status text
+        if (response.status >= 500) {
+          errorMessage = `Server error (${response.status}). Please try again later.`
+        } else {
+          errorMessage = `${operation} failed: ${response.statusText}`
+        }
       }
-      throw new APIError(errorMessage, response.status, response.status.toString())
+      
+      const apiError = new APIError(errorMessage, response.status, response.status.toString())
+      if (errorDetails) {
+        // Attach error details if available
+        (apiError as any).details = errorDetails
+      }
+      throw apiError
     }
+    
     try {
+      const contentType = response.headers.get("content-type")
+      if (!contentType || !contentType.includes("application/json")) {
+        // Handle non-JSON responses
+        const text = await response.text()
+        if (!text) {
+          return {} as T // Empty response
+        }
+        throw new APIError(`Unexpected response format from ${operation}`, 500, "PARSE_ERROR")
+      }
+      
       return await response.json()
     } catch (error) {
+      if (error instanceof APIError) {
+        throw error
+      }
       throw new APIError(`Failed to parse response from ${operation}`, 500, "PARSE_ERROR")
     }
   }
