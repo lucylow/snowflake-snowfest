@@ -1,6 +1,21 @@
-# SNOWFLAKE - Molecular Docking Platform with Blockchain Verification
+# SNOW STREAMLINE - AI-Powered Drug Discovery Platform
 
-A modern, full-stack SaaS platform for molecular docking simulations with AI-powered analysis and Solana blockchain verification.
+> **🏆 Built for Snow Fest Hackathon 2026**  
+> Accelerating drug discovery through AI, blockchain, and innovation.
+
+A revolutionary full-stack platform that combines AlphaFold protein structure prediction, molecular docking simulations, AI-powered analysis, and Solana blockchain verification to democratize access to advanced drug discovery tools.
+
+## 🎯 Hackathon Submission
+
+**Track**: HealthTech & Human Wellbeing | AI & Machine Learning  
+**Submission**: [View PROJECT_SUBMISSION.md](./PROJECT_SUBMISSION.md) for complete submission details  
+**Demo Video**: [Link to your demo video]  
+**Live Demo**: [Link to deployed application]
+
+### Quick Links
+- 📄 [Project Submission Document](./PROJECT_SUBMISSION.md) - Complete hackathon submission
+- 🎬 [Demo Guide](./DEMO_GUIDE.md) - Step-by-step demo instructions
+- 🚀 [Quick Start](#-quick-start) - Get started in 5 minutes
 
 ## 🚀 Features
 
@@ -324,32 +339,37 @@ The diagrams above illustrate different aspects of the SNOWFLAKE platform:
 - **Analysis Types**: Binding affinity, drug-likeness, toxicity
 - **Report Generation**: Multi-stakeholder PDF/HTML/JSON reports
 
-## 📦 Installation
+## 🚀 Quick Start
 
 ### Prerequisites
 - Node.js 18+ 
+- Python 3.9+
 - npm or yarn
-- Phantom Wallet (browser extension)
+- Phantom Wallet (browser extension) - [Download here](https://phantom.app)
 
-### Setup
+### 5-Minute Setup
 
 1. **Clone the repository**
 ```bash
 git clone <repository-url>
-cd snowflake
+cd snow-streamline
 ```
 
-2. **Install dependencies**
+2. **Install frontend dependencies**
 ```bash
 npm install
 ```
 
-3. **Configure environment variables**
+3. **Install backend dependencies**
 ```bash
-cp .env.local.example .env.local
+cd backend
+pip install -r requirements.txt
+cd ..
 ```
 
-Edit `.env.local`:
+4. **Configure environment variables**
+
+Create `.env.local` in the root directory:
 ```env
 # Solana Configuration
 VITE_SOLANA_NETWORK=devnet
@@ -361,13 +381,48 @@ VITE_API_URL=http://localhost:8000
 VITE_WS_URL=ws://localhost:8000
 ```
 
-4. **Run development server**
+Create `backend/.env`:
+```env
+# Database
+DATABASE_URL=sqlite+aiosqlite:///./snowflake.db
+
+# AI Services (optional for basic demo)
+OPENAI_API_KEY=your_key_here
+ANTHROPIC_API_KEY=your_key_here
+
+# Solana
+SOLANA_RPC_URL=https://api.devnet.solana.com
+```
+
+5. **Start the backend server**
+```bash
+cd backend
+python main.py
+```
+
+6. **Start the frontend** (in a new terminal)
 ```bash
 npm run dev
 ```
 
-5. **Open browser**
-Navigate to `http://localhost:3000`
+7. **Open your browser**
+Navigate to `http://localhost:5173` (or the port shown in terminal)
+
+8. **Connect Phantom Wallet**
+- Install Phantom wallet extension
+- Switch to Devnet (Settings → Change Network → Devnet)
+- Connect wallet in the app
+- Request test SOL airdrop if needed
+
+### 🎬 Try the Demo
+
+1. Go to Dashboard
+2. Click "Submit New Job"
+3. Upload a protein PDB file or paste a sequence
+4. Upload a ligand file (SDF/MOL2)
+5. Submit and watch the magic happen!
+
+See [DEMO_GUIDE.md](./DEMO_GUIDE.md) for detailed demo instructions.
 
 ## 🔗 Blockchain Setup
 
@@ -635,9 +690,16 @@ graph TB
 
 ## 📖 Documentation
 
-- [Solana Integration Guide](docs/SOLANA_INTEGRATION.md)
-- [API Documentation](docs/API.md)
-- [Component Library](docs/COMPONENTS.md)
+### Hackathon Submission
+- 📄 [Project Submission Document](./PROJECT_SUBMISSION.md) - Complete hackathon submission details
+- 🎬 [Demo Guide](./DEMO_GUIDE.md) - Step-by-step demo video instructions
+- 💡 [Innovation Highlights](./INNOVATION_HIGHLIGHTS.md) - What makes this project unique
+
+### Technical Documentation
+- [Solana Integration Guide](./docs/SOLANA_INTEGRATION.md) - Blockchain setup and usage
+- [API Documentation](./docs/API_DOCUMENTATION.md) - API reference
+- [External API Integration](./docs/EXTERNAL_API_INTEGRATION.md) - PubChem, ChEMBL, UniProt integration
+- [Deployment Guide](./docs/DEPLOYMENT.md) - Production deployment instructions
 
 ## 🤝 Contributing
 

@@ -38,6 +38,7 @@ export function SubmitJobDialog({ open, onOpenChange, onSubmit }: SubmitJobDialo
   const [ligandFile, setLigandFile] = useState<File | null>(null)
   const [exhaustiveness, setExhaustiveness] = useState([8])
   const [numModes, setNumModes] = useState([9])
+  const [useGpu, setUseGpu] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<{
@@ -113,6 +114,16 @@ export function SubmitJobDialog({ open, onOpenChange, onSubmit }: SubmitJobDialo
     }
   }
 
+  const handleSequenceChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setProteinSequence(value)
+    if (value) {
+      validateSequence(value)
+    } else {
+      setFieldErrors((prev) => ({ ...prev, sequence: undefined }))
+    }
+  }
+
   const handleSubmit = async () => {
     setValidationError(null)
 
@@ -146,7 +157,7 @@ export function SubmitJobDialog({ open, onOpenChange, onSubmit }: SubmitJobDialo
       exhaustiveness: exhaustiveness[0],
       energy_range: 3,
       num_modes: numModes[0],
-      use_gpu: false,
+      use_gpu: useGpu,
     }
 
     setIsSubmitting(true)

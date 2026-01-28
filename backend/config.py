@@ -77,6 +77,18 @@ class Settings(BaseSettings):
         default="/usr/local/bin/vina",
         env="AUTODOCK_VINA_PATH"
     )
+    GNINA_PATH: str = Field(
+        default="gnina",
+        env="GNINA_PATH"
+    )
+    USE_GPU_DOCKING: bool = Field(
+        default=False,
+        env="USE_GPU_DOCKING"
+    )
+    MAX_PARALLEL_LIGANDS: int = Field(
+        default=4,
+        env="MAX_PARALLEL_LIGANDS"
+    )
     
     # AI Services
     OPENAI_API_KEY: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
@@ -142,6 +154,13 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]
         return v
+    
+    @validator("USE_GPU_DOCKING", pre=True)
+    def parse_use_gpu_docking(cls, v):
+        """Parse USE_GPU_DOCKING from string or bool."""
+        if isinstance(v, str):
+            return v.lower() in ("1", "true", "yes")
+        return bool(v)
     
     @validator("WORKSPACE_DIR", "UPLOADS_DIR", "PREDICTIONS_DIR", "CACHE_DIR", "ALPHAFOLD_DATA_DIR", pre=True)
     def parse_path(cls, v):

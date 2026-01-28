@@ -4,6 +4,22 @@ from typing import Dict, Any, Optional, List
 import httpx
 import json
 from datetime import datetime
+import hashlib
+import asyncio
+from functools import lru_cache
+
+# Import molecular properties service
+try:
+    from backend.services.molecular_properties import (
+        calculate_molecular_properties,
+        RDKitNotAvailableError,
+        MolecularPropertyError
+    )
+except ImportError:
+    logger.warning("Molecular properties service not available")
+    RDKitNotAvailableError = Exception
+    MolecularPropertyError = Exception
+    calculate_molecular_properties = None
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +37,29 @@ class AIReportTimeoutError(AIReportError):
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+
+# Cache for AI analysis results (in-memory, can be replaced with Redis in production)
+_analysis_cache: Dict[str, Dict[str, Any]] = {}
+CACHE_TTL_SECONDS = 3600  # 1 hour cache TTL
+
+# Retry configuration
+MAX_RETRIES = 3
+INITIAL_RETRY_DELAY = 1.0  # seconds
+MAX_RETRY_DELAY = 10.0  # seconds
+
+# Cost tracking (approximate costs per 1K tokens)
+# Prices as of 2025 - update as needed
+COST_PER_1K_TOKENS = {
+    "openai": {
+        "gpt-4o": {"input": 0.0025, "output": 0.010},  # $2.50/$10 per 1M tokens
+    },
+    "anthropic": {
+        "claude-3-7-sonnet-20250219": {"input": 0.003, "output": 0.015},  # $3/$15 per 1M tokens
+    }
+}
+
+# Track API usage
+_api_usage_stats: Dict[str, Dict[str, Any]] = {}
 
 async def generate_ai_report(
     job_id: str,
@@ -175,7 +214,7 @@ async def generate_ai_report(
     """
         
         # Add ML-powered molecular property predictions for top ligands
-        ml_predictions_context = await add_ml_predictions_context(docking_results)
+        ml_predictions_context = await _add_ml_predictions_context(docking_results, valid_results)
         if ml_predictions_context:
             context += ml_predictions_context
         
@@ -235,14 +274,108 @@ async def generate_ai_report(
         logger.error(f"Unexpected error generating AI report for job {job_id}: {str(e)}", exc_info=True)
         raise AIReportError(f"Failed to generate AI report: {str(e)}") from e
 
+def _get_cache_key(context: str, stakeholder: str, analysis_type: str = "report") -> str:
+    """Generate cache key from context and parameters"""
+    key_string = f"{analysis_type}:{stakeholder}:{context}"
+    return hashlib.sha256(key_string.encode()).hexdigest()
+
+def _get_cached_analysis(cache_key: str) -> Optional[str]:
+    """Get cached analysis if available and not expired"""
+    if cache_key not in _analysis_cache:
+        return None
+    
+    cached_data = _analysis_cache[cache_key]
+    timestamp = cached_data.get("timestamp", 0)
+    age_seconds = (datetime.now().timestamp() - timestamp)
+    
+    if age_seconds > CACHE_TTL_SECONDS:
+        del _analysis_cache[cache_key]
+        return None
+    
+    return cached_data.get("result")
+
+def _cache_analysis(cache_key: str, result: str):
+    """Cache analysis result"""
+    _analysis_cache[cache_key] = {
+        "result": result,
+        "timestamp": datetime.now().timestamp()
+    }
+    # Limit cache size (keep last 100 entries)
+    if len(_analysis_cache) > 100:
+        oldest_key = min(_analysis_cache.keys(), key=lambda k: _analysis_cache[k]["timestamp"])
+        del _analysis_cache[oldest_key]
+
+def _track_api_usage(provider: str, model: str, input_tokens: int, output_tokens: int):
+    """Track API usage and calculate costs"""
+    if provider not in _api_usage_stats:
+        _api_usage_stats[provider] = {
+            "total_requests": 0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_cost": 0.0
+        }
+    
+    stats = _api_usage_stats[provider]
+    stats["total_requests"] += 1
+    stats["total_input_tokens"] += input_tokens
+    stats["total_output_tokens"] += output_tokens
+    
+    # Calculate cost
+    costs = COST_PER_1K_TOKENS.get(provider, {}).get(model, {})
+    input_cost = (input_tokens / 1000) * costs.get("input", 0)
+    output_cost = (output_tokens / 1000) * costs.get("output", 0)
+    total_cost = input_cost + output_cost
+    
+    stats["total_cost"] += total_cost
+    
+    logger.info(
+        f"API usage - Provider: {provider}, Model: {model}, "
+        f"Input tokens: {input_tokens}, Output tokens: {output_tokens}, "
+        f"Cost: ${total_cost:.4f}"
+    )
+
+def get_api_usage_stats() -> Dict[str, Dict[str, Any]]:
+    """Get API usage statistics"""
+    return _api_usage_stats.copy()
+
+async def _retry_with_backoff(func, *args, **kwargs):
+    """Retry function with exponential backoff"""
+    last_exception = None
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            return await func(*args, **kwargs)
+        except (AIAPIError, AIReportTimeoutError) as e:
+            last_exception = e
+            if attempt == MAX_RETRIES - 1:
+                raise
+            
+            # Exponential backoff with jitter
+            delay = min(INITIAL_RETRY_DELAY * (2 ** attempt), MAX_RETRY_DELAY)
+            await asyncio.sleep(delay)
+            logger.info(f"Retrying AI API call (attempt {attempt + 1}/{MAX_RETRIES}) after {delay}s delay")
+        except Exception as e:
+            # Don't retry on non-retryable errors
+            raise
+    
+    if last_exception:
+        raise last_exception
+
 async def generate_with_anthropic(context: str, stakeholder: str) -> str:
-    """Generate report using Claude API"""
+    """Generate report using Claude API with retry logic and caching"""
     
     if not ANTHROPIC_API_KEY:
         raise AIAPIError("ANTHROPIC_API_KEY not configured")
     
     if not context or not context.strip():
         raise ValueError("Context cannot be empty for AI report generation")
+    
+    # Check cache
+    cache_key = _get_cache_key(context, stakeholder, "report")
+    cached_result = _get_cached_analysis(cache_key)
+    if cached_result:
+        logger.info("Returning cached AI analysis result")
+        return cached_result
     
     system_prompt = f"""You are an expert computational chemist and drug discovery scientist with deep expertise in molecular docking, binding affinity prediction, and drug design.
     Analyze the following protein-ligand docking results and provide a comprehensive, actionable report tailored for a {stakeholder}.
@@ -269,8 +402,8 @@ async def generate_with_anthropic(context: str, stakeholder: str) -> str:
     Use clear, professional language appropriate for a {stakeholder}. Cite specific metrics and provide quantitative assessments where possible. 
     Be critical and identify limitations or uncertainties in the results."""
     
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+    async def _make_request():
+        async with httpx.AsyncClient(timeout=180.0) as client:  # Increased timeout to 3 minutes
             try:
                 response = await client.post(
                     "https://api.anthropic.com/v1/messages",
@@ -280,16 +413,17 @@ async def generate_with_anthropic(context: str, stakeholder: str) -> str:
                         "content-type": "application/json"
                     },
                     json={
-                        "model": "claude-3-5-sonnet-20241022",
-                        "max_tokens": 2048,
+                        "model": "claude-3-7-sonnet-20250219",  # Updated to latest Claude model
+                        "max_tokens": 4096,  # Increased for more comprehensive analysis
                         "system": system_prompt,
                         "messages": [
                             {"role": "user", "content": context}
-                        ]
+                        ],
+                        "temperature": 0.3  # Lower temperature for more consistent, factual responses
                     }
                 )
             except httpx.TimeoutException:
-                raise AIReportTimeoutError("Anthropic API request timed out after 2 minutes")
+                raise AIReportTimeoutError("Anthropic API request timed out after 3 minutes")
             except httpx.NetworkError as e:
                 raise AIAPIError(f"Network error connecting to Anthropic API: {str(e)}")
             except httpx.RequestError as e:
@@ -323,6 +457,12 @@ async def generate_with_anthropic(context: str, stakeholder: str) -> str:
                 raise AIAPIError("Empty text content in Anthropic API response")
             
             return text_content
+    
+    try:
+        text_content = await _retry_with_backoff(_make_request)
+        # Cache the result
+        _cache_analysis(cache_key, text_content)
+        return text_content
     except (AIAPIError, AIReportTimeoutError):
         raise
     except Exception as e:
@@ -330,13 +470,20 @@ async def generate_with_anthropic(context: str, stakeholder: str) -> str:
         raise AIAPIError(f"Unexpected error generating AI report: {str(e)}") from e
 
 async def generate_with_openai(context: str, stakeholder: str) -> str:
-    """Generate report using OpenAI GPT-4"""
+    """Generate report using OpenAI GPT-4 with retry logic and caching"""
     
     if not OPENAI_API_KEY:
         raise AIAPIError("OPENAI_API_KEY not configured")
     
     if not context or not context.strip():
         raise ValueError("Context cannot be empty for AI report generation")
+    
+    # Check cache
+    cache_key = _get_cache_key(context, stakeholder, "report")
+    cached_result = _get_cached_analysis(cache_key)
+    if cached_result:
+        logger.info("Returning cached AI analysis result")
+        return cached_result
     
     system_prompt = f"""You are an expert computational chemist and drug discovery scientist with deep expertise in molecular docking, binding affinity prediction, and drug design.
     Analyze the following protein-ligand docking results and provide a comprehensive, actionable report tailored for a {stakeholder}.
@@ -363,8 +510,8 @@ async def generate_with_openai(context: str, stakeholder: str) -> str:
     Use clear, professional language appropriate for a {stakeholder}. Cite specific metrics and provide quantitative assessments where possible. 
     Be critical and identify limitations or uncertainties in the results."""
     
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+    async def _make_request():
+        async with httpx.AsyncClient(timeout=180.0) as client:  # Increased timeout to 3 minutes
             try:
                 response = await client.post(
                     "https://api.openai.com/v1/chat/completions",
@@ -373,17 +520,17 @@ async def generate_with_openai(context: str, stakeholder: str) -> str:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "gpt-4-turbo-preview",
+                        "model": "gpt-4o",  # Updated to latest GPT-4o model
                         "messages": [
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": context}
                         ],
-                        "max_tokens": 2048,
-                        "temperature": 0.7
+                        "max_tokens": 4096,  # Increased for more comprehensive analysis
+                        "temperature": 0.3  # Lower temperature for more consistent, factual responses
                     }
                 )
             except httpx.TimeoutException:
-                raise AIReportTimeoutError("OpenAI API request timed out after 2 minutes")
+                raise AIReportTimeoutError("OpenAI API request timed out after 3 minutes")
             except httpx.NetworkError as e:
                 raise AIAPIError(f"Network error connecting to OpenAI API: {str(e)}")
             except httpx.RequestError as e:
@@ -417,6 +564,12 @@ async def generate_with_openai(context: str, stakeholder: str) -> str:
                 raise AIAPIError("Empty message content in OpenAI API response")
             
             return message_content
+    
+    try:
+        message_content = await _retry_with_backoff(_make_request)
+        # Cache the result
+        _cache_analysis(cache_key, message_content)
+        return message_content
     except (AIAPIError, AIReportTimeoutError):
         raise
     except Exception as e:
@@ -884,11 +1037,12 @@ Please provide your analysis in JSON format with the following structure:
                 "recommendations": analysis_dict.get("recommendations", []),
                 "confidence": analysis_dict.get("confidence", 0.65),
                 "metadata": {
-                    "model": "claude-3-5-sonnet-20241022" if ANTHROPIC_API_KEY else ("gpt-4-turbo-preview" if OPENAI_API_KEY else "template"),
+                    "model": "claude-3-7-sonnet-20250219" if ANTHROPIC_API_KEY else ("gpt-4o" if OPENAI_API_KEY else "template"),
                     "stakeholder_type": stakeholder_type,
                     "analysis_type": analysis_type,
                     "job_id": job_id,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "api_usage": _api_usage_stats.get("anthropic" if ANTHROPIC_API_KEY else ("openai" if OPENAI_API_KEY else None), {})
                 },
                 "admet_properties": admet_data if admet_data else None,
                 "toxicity_predictions": toxicity_data if toxicity_data else None
@@ -926,13 +1080,20 @@ Please provide your analysis in JSON format with the following structure:
         raise AIReportError(f"Failed to generate structured AI analysis: {str(e)}") from e
 
 async def generate_structured_with_anthropic(context: str, system_prompt: str, stakeholder: str) -> str:
-    """Generate structured analysis using Claude API"""
+    """Generate structured analysis using Claude API with retry logic and caching"""
     
     if not ANTHROPIC_API_KEY:
         raise AIAPIError("ANTHROPIC_API_KEY not configured")
     
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+    # Check cache
+    cache_key = _get_cache_key(context, stakeholder, "structured")
+    cached_result = _get_cached_analysis(cache_key)
+    if cached_result:
+        logger.info("Returning cached structured AI analysis result")
+        return cached_result
+    
+    async def _make_request():
+        async with httpx.AsyncClient(timeout=180.0) as client:  # Increased timeout to 3 minutes
             try:
                 response = await client.post(
                     "https://api.anthropic.com/v1/messages",
@@ -942,16 +1103,17 @@ async def generate_structured_with_anthropic(context: str, system_prompt: str, s
                         "content-type": "application/json"
                     },
                     json={
-                        "model": "claude-3-5-sonnet-20241022",
+                        "model": "claude-3-7-sonnet-20250219",  # Updated to latest Claude model
                         "max_tokens": 4096,
                         "system": system_prompt,
                         "messages": [
                             {"role": "user", "content": context}
-                        ]
+                        ],
+                        "temperature": 0.3  # Lower temperature for more consistent, factual responses
                     }
                 )
             except httpx.TimeoutException:
-                raise AIReportTimeoutError("Anthropic API request timed out after 2 minutes")
+                raise AIReportTimeoutError("Anthropic API request timed out after 3 minutes")
             except httpx.NetworkError as e:
                 raise AIAPIError(f"Network error connecting to Anthropic API: {str(e)}")
             except httpx.RequestError as e:
@@ -969,7 +1131,19 @@ async def generate_structured_with_anthropic(context: str, system_prompt: str, s
             if not text_content:
                 raise AIAPIError("Empty text content in Anthropic API response")
             
+            # Track usage and cost
+            usage = result.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            _track_api_usage("anthropic", "claude-3-7-sonnet-20250219", input_tokens, output_tokens)
+            
             return text_content
+    
+    try:
+        text_content = await _retry_with_backoff(_make_request)
+        # Cache the result
+        _cache_analysis(cache_key, text_content)
+        return text_content
     except (AIAPIError, AIReportTimeoutError):
         raise
     except Exception as e:
@@ -977,13 +1151,20 @@ async def generate_structured_with_anthropic(context: str, system_prompt: str, s
         raise AIAPIError(f"Unexpected error generating structured analysis: {str(e)}") from e
 
 async def generate_structured_with_openai(context: str, system_prompt: str, stakeholder: str) -> str:
-    """Generate structured analysis using OpenAI GPT-4"""
+    """Generate structured analysis using OpenAI GPT-4 with retry logic and caching"""
     
     if not OPENAI_API_KEY:
         raise AIAPIError("OPENAI_API_KEY not configured")
     
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+    # Check cache
+    cache_key = _get_cache_key(context, stakeholder, "structured")
+    cached_result = _get_cached_analysis(cache_key)
+    if cached_result:
+        logger.info("Returning cached structured AI analysis result")
+        return cached_result
+    
+    async def _make_request():
+        async with httpx.AsyncClient(timeout=180.0) as client:  # Increased timeout to 3 minutes
             try:
                 response = await client.post(
                     "https://api.openai.com/v1/chat/completions",
@@ -992,18 +1173,18 @@ async def generate_structured_with_openai(context: str, system_prompt: str, stak
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "gpt-4-turbo-preview",
+                        "model": "gpt-4o",  # Updated to latest GPT-4o model
                         "messages": [
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": context}
                         ],
                         "max_tokens": 4096,
-                        "temperature": 0.7,
+                        "temperature": 0.3,  # Lower temperature for more consistent, factual responses
                         "response_format": {"type": "json_object"}
                     }
                 )
             except httpx.TimeoutException:
-                raise AIReportTimeoutError("OpenAI API request timed out after 2 minutes")
+                raise AIReportTimeoutError("OpenAI API request timed out after 3 minutes")
             except httpx.NetworkError as e:
                 raise AIAPIError(f"Network error connecting to OpenAI API: {str(e)}")
             except httpx.RequestError as e:
@@ -1021,7 +1202,19 @@ async def generate_structured_with_openai(context: str, system_prompt: str, stak
             if not message_content:
                 raise AIAPIError("Empty message content in OpenAI API response")
             
+            # Track usage and cost
+            usage = result.get("usage", {})
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            _track_api_usage("openai", "gpt-4o", prompt_tokens, completion_tokens)
+            
             return message_content
+    
+    try:
+        message_content = await _retry_with_backoff(_make_request)
+        # Cache the result
+        _cache_analysis(cache_key, message_content)
+        return message_content
     except (AIAPIError, AIReportTimeoutError):
         raise
     except Exception as e:
@@ -1089,6 +1282,85 @@ def _get_default_recommendations(stakeholder_type: str) -> List[str]:
     }
     
     return recommendations.get(stakeholder_type, recommendations["researcher"])
+
+async def _add_ml_predictions_context(docking_results: Dict[str, Any], valid_results: List[Dict[str, Any]]) -> str:
+    """
+    Add ML-powered molecular property predictions context to the analysis prompt.
+    
+    Args:
+        docking_results: Docking results dictionary
+        valid_results: List of valid docking results
+        
+    Returns:
+        Formatted context string with ML predictions
+    """
+    if not calculate_molecular_properties:
+        return ""
+    
+    context = ""
+    ligand_files = docking_results.get('ligand_files', [])
+    
+    if not ligand_files or not valid_results:
+        return context
+    
+    # Analyze top 3 ligands
+    top_ligands = valid_results[:3]
+    ml_summaries = []
+    
+    for idx, result in enumerate(top_ligands):
+        ligand_idx = result.get('ligand_index', idx)
+        if ligand_idx >= len(ligand_files):
+            continue
+        
+        try:
+            ligand_sdf = ligand_files[ligand_idx]
+            ligand_name = result.get('ligand_name', f'ligand_{ligand_idx}')
+            
+            properties = calculate_molecular_properties(ligand_sdf, ligand_name)
+            
+            # Extract key properties
+            mol_props = properties.get('molecular_properties', {})
+            admet = properties.get('admet', {})
+            toxicity = properties.get('toxicity', {})
+            
+            summary = f"\n### ML Predictions for {ligand_name}:\n"
+            
+            # Drug-likeness
+            drug_likeness = mol_props.get('drug_likeness_score', {})
+            if drug_likeness:
+                score = drug_likeness.get('overall_score', 0)
+                summary += f"- Drug-likeness Score: {score:.2f}/1.0\n"
+            
+            # Key ADMET properties
+            if admet.get('absorption'):
+                gi_abs = admet['absorption'].get('gi_absorption', {})
+                if gi_abs:
+                    summary += f"- GI Absorption: {gi_abs.get('prediction', 'Unknown')}\n"
+            
+            if admet.get('distribution'):
+                bbb = admet['distribution'].get('bbb_permeability', {})
+                if bbb:
+                    summary += f"- BBB Permeability: {bbb.get('prediction', 'Unknown')}\n"
+            
+            # Toxicity
+            if toxicity.get('overall_toxicity_risk'):
+                risk = toxicity['overall_toxicity_risk'].get('level', 'Unknown')
+                summary += f"- Toxicity Risk: {risk}\n"
+            
+            ml_summaries.append(summary)
+            
+        except (RDKitNotAvailableError, MolecularPropertyError) as e:
+            logger.debug(f"ML predictions unavailable for ligand {ligand_idx}: {str(e)}")
+            continue
+        except Exception as e:
+            logger.warning(f"Error calculating ML properties for ligand {ligand_idx}: {str(e)}")
+            continue
+    
+    if ml_summaries:
+        context += "\n## ML-Powered Molecular Property Predictions:\n"
+        context += "".join(ml_summaries)
+    
+    return context
 
 def _extract_recommendations_from_text(text: str, stakeholder_type: str) -> List[str]:
     """Extract recommendations from AI-generated text"""

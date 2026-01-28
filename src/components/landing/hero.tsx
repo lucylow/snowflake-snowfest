@@ -22,9 +22,9 @@ export function Hero() {
 
         <div className="flex flex-col gap-4 justify-center items-center mb-8 sm:flex-row">
           <Link to="/dashboard">
-            <Button size="lg" className="gap-2 text-base">
+            <Button size="lg" className="gap-2 text-base shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
               Start Free Trial
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
             </Button>
           </Link>
           <a
@@ -34,7 +34,7 @@ export function Hero() {
               document.querySelector("#features")?.scrollIntoView({ behavior: "smooth" })
             }}
           >
-            <Button size="lg" variant="outline" className="gap-2 text-base bg-transparent">
+            <Button size="lg" variant="outline" className="gap-2 text-base bg-transparent hover:bg-muted/50 transition-all duration-300 hover:scale-105">
               <Play className="h-4 w-4" />
               Watch Demo
             </Button>

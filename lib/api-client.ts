@@ -2,6 +2,13 @@
 // Connects to the FastAPI backend for docking operations
 
 import { API_BASE_URL, LOG_PREFIX, REQUEST_TIMEOUT_AI_MS, REQUEST_TIMEOUT_MS } from "./constants"
+import {
+  getMockDockingResult,
+  getMockJobStatus,
+  getMockAIAnalysis,
+  mockDockingJobs,
+  mockAlphaFoldJobs,
+} from "./mock-data"
 
 const LIGAND_EXT = /\.(sdf|mol2)$/i
 
@@ -308,6 +315,13 @@ class APIClient {
       const response = await fetchWithTimeout(`${this.baseUrl}/api/jobs/${jobId}`)
       return this.handleResponse(response, "Status check")
     } catch (error) {
+      console.warn(`${LOG_PREFIX} API call failed, falling back to mock data for job ${jobId}:`, error)
+      // Fallback to mock data
+      const mockStatus = getMockJobStatus(jobId)
+      if (mockStatus) {
+        return mockStatus as JobStatus
+      }
+      // If no mock data available, throw the original error
       if (error instanceof APIError) throw error
       throw new APIError("Unable to retrieve job status", 0, "NETWORK_ERROR")
     }
@@ -323,6 +337,13 @@ class APIClient {
       const response = await fetchWithTimeout(`${this.baseUrl}/api/docking/results/${jobId}`)
       return this.handleResponse(response, "Results retrieval")
     } catch (error) {
+      console.warn(`${LOG_PREFIX} API call failed, falling back to mock data for job ${jobId}:`, error)
+      // Fallback to mock data
+      const mockResult = getMockDockingResult(jobId)
+      if (mockResult) {
+        return mockResult as DockingResult
+      }
+      // If no mock data available, throw the original error
       if (error instanceof APIError) throw error
       throw new APIError("Unable to retrieve docking results", 0, "NETWORK_ERROR")
     }
@@ -349,6 +370,19 @@ class APIClient {
 
       return this.handleResponse(response, "AI analysis")
     } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} AI analysis API call failed, falling back to mock data for job ${request.job_id}:`,
+        error,
+      )
+      // Fallback to mock data
+      const mockAnalysis = getMockAIAnalysis(
+        request.job_id,
+        request.stakeholder_type || "researcher",
+      )
+      if (mockAnalysis) {
+        return mockAnalysis
+      }
+      // If no mock data available, throw the original error
       if (error instanceof APIError) throw error
       throw new APIError("AI analysis failed - please try again", 0, "NETWORK_ERROR")
     }

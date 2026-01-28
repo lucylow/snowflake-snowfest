@@ -8,13 +8,13 @@ export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-sm">
       <div className="container flex h-16 items-center justify-between">
-        <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-lg">
+        <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-all duration-300 group">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-bold text-lg shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all duration-300">
             S
           </div>
-          <span className="text-xl font-bold">SNOWFLAKE</span>
+          <span className="text-xl font-bold bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">SNOWFLAKE</span>
         </Link>
 
         {/* Desktop Navigation */}
@@ -54,12 +54,12 @@ export function Header() {
         <div className="flex items-center gap-4">
           <WalletButton />
           <Link to="/login">
-            <Button variant="ghost" className="hidden md:inline-flex">
+            <Button variant="ghost" className="hidden md:inline-flex hover:bg-muted/80 transition-colors">
               Sign In
             </Button>
           </Link>
           <Link to="/signup">
-            <Button>Get Started</Button>
+            <Button className="shadow-md hover:shadow-lg transition-all duration-300 hover:scale-105">Get Started</Button>
           </Link>
 
           {/* Mobile menu button */}

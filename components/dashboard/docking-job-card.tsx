@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Clock, CheckCircle, XCircle, Loader2, Dna, Sparkles } from "lucide-react"
@@ -10,6 +11,23 @@ interface DockingJobCardProps {
 }
 
 export function DockingJobCard({ job }: DockingJobCardProps) {
+  const getEstimatedTime = useMemo(() => {
+    const now = new Date()
+    const created = new Date(job.created_at)
+    const elapsed = (now.getTime() - created.getTime()) / 1000 / 60 // minutes
+
+    if (job.status === "predicting_structure") {
+      const estimated = 15 // average 15 minutes for AlphaFold
+      const remaining = Math.max(0, estimated - elapsed)
+      return remaining > 0 ? `~${Math.round(remaining)} min remaining` : "Completing soon..."
+    }
+    if (job.status === "docking" || job.status === "running") {
+      const estimated = 5 // average 5 minutes for docking
+      const remaining = Math.max(0, estimated - elapsed)
+      return remaining > 0 ? `~${Math.round(remaining)} min remaining` : "Completing soon..."
+    }
+    return null
+  }, [job.status, job.created_at])
   const getStatusIcon = () => {
     switch (job.status) {
       case "completed":
@@ -47,39 +65,51 @@ export function DockingJobCard({ job }: DockingJobCardProps) {
   }
 
   return (
-    <Card className="p-5 hover:shadow-md transition-shadow">
+    <Card className="p-5 hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 border-l-4 border-l-transparent hover:border-l-primary/50 group">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4 flex-1">
-          {getStatusIcon()}
+          <div className="p-2 rounded-lg bg-muted/50 group-hover:bg-muted transition-colors">
+            {getStatusIcon()}
+          </div>
           <div className="flex-1 min-w-0">
-            <p className="font-medium text-base truncate">Job {job.job_id.slice(0, 8)}</p>
+            <p className="font-semibold text-base truncate group-hover:text-primary transition-colors">Job {job.job_id.slice(0, 8)}</p>
             <p className="text-sm text-muted-foreground mt-1">{new Date(job.created_at).toLocaleString()}</p>
           </div>
         </div>
-        {getStatusBadge()}
+        <div className="group-hover:scale-105 transition-transform">
+          {getStatusBadge()}
+        </div>
       </div>
 
       {job.plddt_score !== undefined && (
         <div className="mt-4 space-y-2">
-          <div className="flex items-center justify-between px-3 py-2 bg-muted/50 rounded-md">
-            <span className="text-sm text-muted-foreground">AlphaFold Confidence</span>
-            <span className="text-sm font-medium">
-              {job.plddt_score.toFixed(1)}
-              <span className="text-muted-foreground">/100</span>
-            </span>
+          <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-muted/50 to-muted/30 rounded-lg border border-border/50 hover:border-primary/20 transition-colors">
+            <span className="text-sm font-medium text-muted-foreground">AlphaFold Confidence</span>
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-16 bg-muted rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
+                  style={{ width: `${job.plddt_score}%` }}
+                />
+              </div>
+              <span className="text-sm font-bold">
+                {job.plddt_score.toFixed(1)}
+                <span className="text-muted-foreground font-normal">/100</span>
+              </span>
+            </div>
           </div>
           {job.quality_metrics && (
-            <div className="px-3 py-2 bg-muted/30 rounded-md text-xs">
-              <div className="flex items-center justify-between mb-1">
+            <div className="px-4 py-2.5 bg-muted/30 rounded-lg border border-border/30 text-xs">
+              <div className="flex items-center justify-between mb-2">
                 <span className="text-muted-foreground">High Confidence:</span>
-                <span className="font-medium">
+                <span className="font-semibold text-foreground">
                   {job.quality_metrics.confidence_regions.very_high + job.quality_metrics.confidence_regions.confident} residues
                 </span>
               </div>
               {job.quality_metrics.pae_score !== null && job.quality_metrics.pae_score !== undefined && (
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between pt-2 border-t border-border/30">
                   <span className="text-muted-foreground">PAE Score:</span>
-                  <span className="font-medium">{job.quality_metrics.pae_score.toFixed(2)} Å</span>
+                  <span className="font-semibold text-foreground">{job.quality_metrics.pae_score.toFixed(2)} Å</span>
                 </div>
               )}
             </div>
@@ -98,16 +128,33 @@ export function DockingJobCard({ job }: DockingJobCardProps) {
       )}
 
       {job.progress !== undefined && (job.status === "running" || job.status === "docking") && (
-        <div className="mt-4">
-          <div className="w-full bg-muted rounded-full h-2.5">
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Progress</span>
+            <span className="font-medium">{job.progress}%</span>
+          </div>
+          <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
             <div
-              className="bg-primary h-2.5 rounded-full transition-all duration-500"
+              className="h-full bg-gradient-to-r from-primary to-primary/80 rounded-full transition-all duration-500 shadow-sm"
               style={{ width: `${job.progress}%` }}
             />
           </div>
+          {getEstimatedTime && (
+            <p className="text-xs text-muted-foreground">{getEstimatedTime}</p>
+          )}
         </div>
       )}
-      {job.error && <p className="text-sm text-destructive mt-3 leading-relaxed">{job.error}</p>}
+      {!job.progress && getEstimatedTime && (
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <Clock className="w-3 h-3" />
+          <span>{getEstimatedTime}</span>
+        </div>
+      )}
+      {job.error && (
+        <div className="mt-3 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <p className="text-sm text-destructive leading-relaxed font-medium">{job.error}</p>
+        </div>
+      )}
     </Card>
   )
 }

@@ -1,6 +1,6 @@
 # User Experience Improvements
 
-This document outlines the UX improvements implemented to enhance the user experience of the Snow Streamline drug discovery platform.
+This document outlines the UX improvements implemented to enhance the user experience of the SNOWFLAKE drug discovery platform.
 
 ## Overview
 

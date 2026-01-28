@@ -303,6 +303,8 @@ export const mockDockingResults = {
     job_id: "job_001_aspirin_cox2",
     protein_name: "COX-2 Enzyme",
     ligand_name: "Aspirin",
+    protein_structure: EXAMPLE_PDB,
+    ligand_structure: EXAMPLE_PDB,
     best_pose: {
       pose_id: 0,
       score: -8.7,
@@ -329,7 +331,13 @@ export const mockDockingResults = {
       success_rate: 1.0,
       best_rmsd: 0.0,
       confidence_score: 0.89,
+      mean_binding_energy: -7.75,
+      predicted_ic50: 2.3,
+      drug_likeness_score: 0.82,
     },
+    output_directory: "/workspace/predictions/job_001_aspirin_cox2/docking",
+    raw_results_path: "/workspace/predictions/job_001_aspirin_cox2/docking/results.pdbqt",
+    analysis_plots: {},
     execution_time: 342.5,
     timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
   },
@@ -337,6 +345,8 @@ export const mockDockingResults = {
     job_id: "job_002_ibuprofen_cox1",
     protein_name: "COX-1 Enzyme",
     ligand_name: "Ibuprofen",
+    protein_structure: EXAMPLE_PDB,
+    ligand_structure: EXAMPLE_PDB,
     best_pose: {
       pose_id: 0,
       score: -9.2,
@@ -361,7 +371,13 @@ export const mockDockingResults = {
       success_rate: 1.0,
       best_rmsd: 0.0,
       confidence_score: 0.92,
+      mean_binding_energy: -8.6,
+      predicted_ic50: 1.5,
+      drug_likeness_score: 0.88,
     },
+    output_directory: "/workspace/predictions/job_002_ibuprofen_cox1/docking",
+    raw_results_path: "/workspace/predictions/job_002_ibuprofen_cox1/docking/results.pdbqt",
+    analysis_plots: {},
     execution_time: 289.3,
     timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
   },
@@ -369,6 +385,8 @@ export const mockDockingResults = {
     job_id: "job_006_oseltamivir_neuraminidase",
     protein_name: "Influenza Neuraminidase",
     ligand_name: "Oseltamivir (Tamiflu)",
+    protein_structure: EXAMPLE_PDB,
+    ligand_structure: EXAMPLE_PDB,
     best_pose: {
       pose_id: 0,
       score: -8.9,
@@ -395,7 +413,13 @@ export const mockDockingResults = {
       success_rate: 1.0,
       best_rmsd: 0.0,
       confidence_score: 0.91,
+      mean_binding_energy: -8.27,
+      predicted_ic50: 2.3,
+      drug_likeness_score: 0.85,
     },
+    output_directory: "/workspace/predictions/job_006_oseltamivir_neuraminidase/docking",
+    raw_results_path: "/workspace/predictions/job_006_oseltamivir_neuraminidase/docking/results.pdbqt",
+    analysis_plots: {},
     execution_time: 360.2,
     timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
   },
@@ -403,6 +427,8 @@ export const mockDockingResults = {
     job_id: "job_007_gefitinib_egfr",
     protein_name: "EGFR Kinase",
     ligand_name: "Gefitinib",
+    protein_structure: EXAMPLE_PDB,
+    ligand_structure: EXAMPLE_PDB,
     best_pose: {
       pose_id: 0,
       score: -9.5,
@@ -427,7 +453,13 @@ export const mockDockingResults = {
       success_rate: 1.0,
       best_rmsd: 0.0,
       confidence_score: 0.93,
+      mean_binding_energy: -8.83,
+      predicted_ic50: 0.8,
+      drug_likeness_score: 0.91,
     },
+    output_directory: "/workspace/predictions/job_007_gefitinib_egfr/docking",
+    raw_results_path: "/workspace/predictions/job_007_gefitinib_egfr/docking/results.pdbqt",
+    analysis_plots: {},
     execution_time: 320.1,
     timestamp: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
   },
@@ -435,6 +467,8 @@ export const mockDockingResults = {
     job_id: "job_008_lisinopril_ace",
     protein_name: "Angiotensin-Converting Enzyme (ACE)",
     ligand_name: "Lisinopril",
+    protein_structure: EXAMPLE_PDB,
+    ligand_structure: EXAMPLE_PDB,
     best_pose: {
       pose_id: 0,
       score: -9.0,
@@ -459,7 +493,13 @@ export const mockDockingResults = {
       success_rate: 1.0,
       best_rmsd: 0.0,
       confidence_score: 0.88,
+      mean_binding_energy: -8.25,
+      predicted_ic50: 1.2,
+      drug_likeness_score: 0.86,
     },
+    output_directory: "/workspace/predictions/job_008_lisinopril_ace/docking",
+    raw_results_path: "/workspace/predictions/job_008_lisinopril_ace/docking/results.pdbqt",
+    analysis_plots: {},
     execution_time: 300.3,
     timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
   },
@@ -467,6 +507,8 @@ export const mockDockingResults = {
     job_id: "job_009_metformin_ampk",
     protein_name: "AMP-Activated Protein Kinase",
     ligand_name: "Metformin",
+    protein_structure: EXAMPLE_PDB,
+    ligand_structure: EXAMPLE_PDB,
     best_pose: {
       pose_id: 0,
       score: -9.2,
@@ -491,7 +533,13 @@ export const mockDockingResults = {
       success_rate: 1.0,
       best_rmsd: 0.0,
       confidence_score: 0.85,
+      mean_binding_energy: -8.6,
+      predicted_ic50: 1.0,
+      drug_likeness_score: 0.84,
     },
+    output_directory: "/workspace/predictions/job_009_metformin_ampk/docking",
+    raw_results_path: "/workspace/predictions/job_009_metformin_ampk/docking/results.pdbqt",
+    analysis_plots: {},
     execution_time: 330.4,
     timestamp: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
   },
@@ -499,6 +547,8 @@ export const mockDockingResults = {
     job_id: "job_010_semaglutide_glp1r",
     protein_name: "GLP-1 Receptor",
     ligand_name: "Semaglutide",
+    protein_structure: EXAMPLE_PDB,
+    ligand_structure: EXAMPLE_PDB,
     best_pose: {
       pose_id: 0,
       score: -9.3,
@@ -523,7 +573,13 @@ export const mockDockingResults = {
       success_rate: 1.0,
       best_rmsd: 0.0,
       confidence_score: 0.87,
+      mean_binding_energy: -8.7,
+      predicted_ic50: 0.9,
+      drug_likeness_score: 0.89,
     },
+    output_directory: "/workspace/predictions/job_010_semaglutide_glp1r/docking",
+    raw_results_path: "/workspace/predictions/job_010_semaglutide_glp1r/docking/results.pdbqt",
+    analysis_plots: {},
     execution_time: 350.5,
     timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
   },
@@ -1053,3 +1109,180 @@ export const aiAnalysisExamples = [
 export const allMockJobs = [...mockAlphaFoldJobs, ...mockDockingJobs].sort(
   (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
 )
+
+// Helper functions for generating mock data dynamically
+export function generateMockDockingResult(
+  jobId: string,
+  proteinName: string,
+  ligandName: string,
+  baseScore: number = -8.5,
+): any {
+  const numPoses = 6
+  const poses = Array.from({ length: numPoses }, (_, i) => ({
+    pose_id: i,
+    score: baseScore + i * 0.4,
+    binding_energy: baseScore + i * 0.4,
+    rmsd: i * 1.2,
+    cluster_id: Math.floor(i / 2) + 1,
+    pose_file: EXAMPLE_PDB,
+    interactions: {
+      h_bonds: Math.max(1, 5 - i),
+      hydrophobic: Math.max(2, 6 - i),
+      salt_bridges: i < 3 ? 1 : 0,
+      pi_stack: i === 0 && baseScore < -9 ? 1 : 0,
+    },
+  }))
+
+  const bestPose = poses[0]
+  const scores = poses.map((p) => p.score)
+  const meanScore = scores.reduce((a, b) => a + b, 0) / scores.length
+  const stdScore = Math.sqrt(
+    scores.reduce((sum, score) => sum + Math.pow(score - meanScore, 2), 0) / scores.length,
+  )
+
+  return {
+    job_id: jobId,
+    protein_name: proteinName,
+    ligand_name: ligandName,
+    protein_structure: EXAMPLE_PDB,
+    ligand_structure: EXAMPLE_PDB,
+    best_pose: bestPose,
+    poses,
+    metrics: {
+      mean_score: meanScore,
+      std_score: stdScore,
+      min_score: Math.min(...scores),
+      max_score: Math.max(...scores),
+      num_clusters: Math.ceil(numPoses / 2),
+      success_rate: 1.0,
+      best_rmsd: 0.0,
+      confidence_score: Math.max(0.7, Math.min(0.95, 0.85 + (baseScore + 10) / 20)),
+      mean_binding_energy: meanScore,
+      predicted_ic50: Math.pow(10, baseScore / 1.36) * 1000, // Convert to nM
+      drug_likeness_score: Math.max(0.6, Math.min(0.95, 0.75 + (baseScore + 8) / 10)),
+    },
+    output_directory: `/workspace/predictions/${jobId}/docking`,
+    raw_results_path: `/workspace/predictions/${jobId}/docking/results.pdbqt`,
+    analysis_plots: {},
+    execution_time: 300 + Math.random() * 100,
+    timestamp: new Date().toISOString(),
+  }
+}
+
+export function generateMockJobStatus(
+  jobId: string,
+  status: "queued" | "running" | "completed" | "failed" | "predicting_structure" | "structure_predicted" | "docking" | "analyzing",
+  options: {
+    proteinName?: string
+    ligandName?: string
+    progress?: number
+    error?: string
+    plddtScore?: number
+    proteinSequence?: string
+  } = {},
+): any {
+  const baseStatus: any = {
+    job_id: jobId,
+    status,
+    created_at: new Date(Date.now() - Math.random() * 24 * 60 * 60 * 1000).toISOString(),
+  }
+
+  if (options.proteinName) baseStatus.protein_name = options.proteinName
+  if (options.ligandName) baseStatus.ligand_name = options.ligandName
+  if (options.progress !== undefined) baseStatus.progress = options.progress
+  if (options.error) baseStatus.error = options.error
+  if (options.plddtScore !== undefined) baseStatus.plddt_score = options.plddtScore
+  if (options.proteinSequence) baseStatus.protein_sequence = options.proteinSequence
+
+  if (status === "completed") {
+    baseStatus.completed_at = new Date(Date.now() - Math.random() * 2 * 60 * 60 * 1000).toISOString()
+  }
+
+  return baseStatus
+}
+
+// Fallback helper functions
+export function getMockDockingResult(jobId: string): any | null {
+  // Check existing mock data first
+  if (mockDockingResults[jobId as keyof typeof mockDockingResults]) {
+    return mockDockingResults[jobId as keyof typeof mockDockingResults]
+  }
+
+  // Try to find matching job info
+  const job = mockDockingJobs.find((j) => j.job_id === jobId)
+  if (job) {
+    return generateMockDockingResult(job.job_id, job.protein_name, job.ligand_name, -8.5)
+  }
+
+  // Generate generic mock data
+  return generateMockDockingResult(jobId, "Unknown Protein", "Unknown Ligand", -8.0)
+}
+
+export function getMockJobStatus(jobId: string): any | null {
+  // Check all mock jobs
+  const allJobs = [...mockDockingJobs, ...mockAlphaFoldJobs]
+  const job = allJobs.find((j) => j.job_id === jobId)
+  if (job) {
+    return {
+      ...job,
+      completed_at: job.status === "completed" ? new Date(Date.now() - 1000).toISOString() : undefined,
+    }
+  }
+
+  // Generate generic status
+  return generateMockJobStatus(jobId, "queued")
+}
+
+export function getMockAIAnalysis(jobId: string, stakeholderType: string = "researcher"): any | null {
+  const analysis = mockAIAnalyses[jobId as keyof typeof mockAIAnalyses]
+  if (analysis && analysis[stakeholderType as keyof typeof analysis]) {
+    const stakeholderData = analysis[stakeholderType as keyof typeof analysis] as any
+    return {
+      analysis: {
+        summary: stakeholderData.summary,
+        detailed_analysis:
+          stakeholderData.bindingAnalysis ||
+          stakeholderData.marketOpportunity ||
+          stakeholderData.safetyProfile ||
+          stakeholderData.clinicalApplication ||
+          {},
+        limitations: [
+          "Analysis based on computational predictions only",
+          "Experimental validation required",
+          "In vivo efficacy not confirmed",
+        ],
+      },
+      recommendations: stakeholderData.recommendations || [],
+      confidence: stakeholderData.confidence || 0.85,
+      metadata: {
+        model: "gpt-4-turbo",
+        costEstimate: 0.0234,
+        processingTime: 1.5,
+      },
+    }
+  }
+
+  // Generate generic analysis
+  return {
+    analysis: {
+      summary: `AI analysis for ${jobId} indicates promising binding characteristics. Further experimental validation recommended.`,
+      detailed_analysis: {},
+      limitations: [
+        "Analysis based on computational predictions only",
+        "Experimental validation required",
+        "In vivo efficacy not confirmed",
+      ],
+    },
+    recommendations: [
+      "Proceed with in vitro validation",
+      "Consider structural modifications for improved binding",
+      "Evaluate ADMET properties",
+    ],
+    confidence: 0.75,
+    metadata: {
+      model: "gpt-4-turbo",
+      costEstimate: 0.02,
+      processingTime: 1.2,
+    },
+  }
+}

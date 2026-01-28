@@ -1,31 +1,63 @@
 import subprocess
 import os
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 import aiofiles
 import logging
-import json
 import asyncio
 import math
 from collections import defaultdict
+import statistics
+
+from backend.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Constants
+DEFAULT_GRID_SIZE = 20.0
+MIN_GRID_SIZE = 5.0
+MAX_GRID_SIZE = 100.0
+DEFAULT_EXHAUSTIVENESS = 8
+MIN_EXHAUSTIVENESS = 1
+MAX_EXHAUSTIVENESS = 32
+DEFAULT_NUM_MODES = 9
+MIN_NUM_MODES = 1
+MAX_NUM_MODES = 20
+DEFAULT_ENERGY_RANGE = 3.0
+PROTEIN_PREP_TIMEOUT = 300  # 5 minutes
+LIGAND_PREP_TIMEOUT = 60  # 1 minute
+GNINA_VERSION_CHECK_TIMEOUT = 5
+BASE_DOCKING_TIMEOUT = 120  # 2 minutes base
+MAX_DOCKING_TIMEOUT = 1200  # 20 minutes max
+POSE_CLUSTERING_BIN_SIZE = 1.0  # kcal/mol bins for clustering
+POSE_CONSISTENCY_TOP_N = 3
+
+# Configuration from settings
+VINA_PATH = settings.AUTODOCK_VINA_PATH
+GNINA_PATH = settings.GNINA_PATH
+USE_GPU_DOCKING = settings.USE_GPU_DOCKING
+MAX_PARALLEL_LIGANDS = settings.MAX_PARALLEL_LIGANDS
+
 
 class DockingError(Exception):
     """Base exception for docking-related errors"""
     pass
 
+
 class ProteinPreparationError(DockingError):
     """Error preparing protein for docking"""
     pass
+
 
 class LigandPreparationError(DockingError):
     """Error preparing ligand for docking"""
     pass
 
+
 class VinaExecutionError(DockingError):
     """Error executing AutoDock Vina"""
     pass
+
 
 class DockingParseError(DockingError):
     """Error parsing docking results"""
@@ -35,12 +67,6 @@ class DockingParseError(DockingError):
 class GninaExecutionError(DockingError):
     """Error executing Gnina (GPU-accelerated docking)"""
     pass
-
-
-VINA_PATH = os.getenv("AUTODOCK_VINA_PATH", "/usr/local/bin/vina")
-GNINA_PATH = os.getenv("GNINA_PATH", "gnina")
-USE_GPU_DOCKING = os.getenv("USE_GPU_DOCKING", "0").lower() in ("1", "true", "yes")
-MAX_PARALLEL_LIGANDS = int(os.getenv("MAX_PARALLEL_LIGANDS", "4"))  # Process up to 4 ligands in parallel
 
 
 def _gnina_available() -> bool:
@@ -189,10 +215,15 @@ async def prepare_protein(pdb_path: Path, output_dir: Path) -> Path:
         )
         
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300)  # 5 minute timeout
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=PROTEIN_PREP_TIMEOUT
+            )
         except asyncio.TimeoutError:
             process.kill()
-            raise ProteinPreparationError("Protein preparation timed out after 5 minutes")
+            raise ProteinPreparationError(
+                f"Protein preparation timed out after {PROTEIN_PREP_TIMEOUT} seconds"
+            )
         
         if process.returncode != 0:
             error_msg = stderr.decode('utf-8', errors='replace') if stderr else "Unknown error"
@@ -242,10 +273,16 @@ async def prepare_ligand(ligand_content: str, ligand_name: str, output_dir: Path
         )
         
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60)  # 1 minute timeout
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=LIGAND_PREP_TIMEOUT
+            )
         except asyncio.TimeoutError:
             process.kill()
-            raise LigandPreparationError(f"Ligand preparation timed out for {ligand_name}")
+            raise LigandPreparationError(
+                f"Ligand preparation timed out for {ligand_name} "
+                f"after {LIGAND_PREP_TIMEOUT} seconds"
+            )
         
         if process.returncode != 0:
             error_msg = stderr.decode('utf-8', errors='replace') if stderr else "Unknown error"
@@ -280,31 +317,42 @@ def validate_and_normalize_parameters(parameters: Dict[str, Any]) -> Dict[str, A
     normalized["center_z"] = float(parameters.get("center_z", parameters.get("grid_center_z", 0.0)))
     
     # Grid size (default 20Å)
-    normalized["size_x"] = float(parameters.get("size_x", parameters.get("grid_size_x", 20.0)))
-    normalized["size_y"] = float(parameters.get("size_y", parameters.get("grid_size_y", 20.0)))
-    normalized["size_z"] = float(parameters.get("size_z", parameters.get("grid_size_z", 20.0)))
+    normalized["size_x"] = float(
+        parameters.get("size_x", parameters.get("grid_size_x", DEFAULT_GRID_SIZE))
+    )
+    normalized["size_y"] = float(
+        parameters.get("size_y", parameters.get("grid_size_y", DEFAULT_GRID_SIZE))
+    )
+    normalized["size_z"] = float(
+        parameters.get("size_z", parameters.get("grid_size_z", DEFAULT_GRID_SIZE))
+    )
     
     # Validate grid size (reasonable range)
     for dim in ["size_x", "size_y", "size_z"]:
-        if normalized[dim] < 5.0 or normalized[dim] > 100.0:
-            logger.warning(f"Grid {dim} ({normalized[dim]}) is outside recommended range (5-100 Å)")
+        if normalized[dim] < MIN_GRID_SIZE or normalized[dim] > MAX_GRID_SIZE:
+            logger.warning(
+                f"Grid {dim} ({normalized[dim]}) is outside recommended range "
+                f"({MIN_GRID_SIZE}-{MAX_GRID_SIZE} Å)"
+            )
     
     # Exhaustiveness (default 8, range 1-32)
-    normalized["exhaustiveness"] = int(parameters.get("exhaustiveness", 8))
-    if normalized["exhaustiveness"] < 1:
-        normalized["exhaustiveness"] = 1
-    elif normalized["exhaustiveness"] > 32:
-        normalized["exhaustiveness"] = 32
+    normalized["exhaustiveness"] = int(parameters.get("exhaustiveness", DEFAULT_EXHAUSTIVENESS))
+    normalized["exhaustiveness"] = max(
+        MIN_EXHAUSTIVENESS,
+        min(MAX_EXHAUSTIVENESS, normalized["exhaustiveness"])
+    )
     
     # Number of modes (default 9, range 1-20)
-    normalized["num_modes"] = int(parameters.get("num_modes", parameters.get("energy_range", 9)))
-    if normalized["num_modes"] < 1:
-        normalized["num_modes"] = 1
-    elif normalized["num_modes"] > 20:
-        normalized["num_modes"] = 20
+    normalized["num_modes"] = int(
+        parameters.get("num_modes", parameters.get("energy_range", DEFAULT_NUM_MODES))
+    )
+    normalized["num_modes"] = max(
+        MIN_NUM_MODES,
+        min(MAX_NUM_MODES, normalized["num_modes"])
+    )
     
     # Energy range (optional, for filtering poses)
-    normalized["energy_range"] = float(parameters.get("energy_range", 3.0))
+    normalized["energy_range"] = float(parameters.get("energy_range", DEFAULT_ENERGY_RANGE))
     
     return normalized
 
@@ -433,13 +481,14 @@ async def process_ligands_parallel(
 
 def calculate_docking_statistics(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Calculate comprehensive statistics from docking results.
+    Calculate comprehensive statistics from docking results with advanced metrics.
     
     Args:
         results: List of successful docking results
         
     Returns:
-        Dictionary with statistical metrics
+        Dictionary with comprehensive statistical metrics including percentiles,
+        distribution measures, and confidence intervals
     """
     if not results:
         return {}
@@ -447,53 +496,245 @@ def calculate_docking_statistics(results: List[Dict[str, Any]]) -> Dict[str, Any
     affinities = [r["binding_affinity"] for r in results]
     num_modes_list = [len(r.get("modes", [])) for r in results]
     
-    mean_affinity = sum(affinities) / len(affinities)
-    std_affinity = math.sqrt(sum((x - mean_affinity) ** 2 for x in affinities) / len(affinities))
+    # Basic statistics
+    n = len(affinities)
+    sorted_affinities = sorted(affinities)
+    mean_affinity = statistics.mean(affinities)
+    
+    # Standard deviation (sample standard deviation)
+    if n > 1:
+        std_affinity = statistics.stdev(affinities)
+        variance = statistics.variance(affinities)
+    else:
+        std_affinity = 0.0
+        variance = 0.0
+    
+    # Percentiles
+    median_score = statistics.median(affinities)
+    q1 = statistics.median(sorted_affinities[:n//2]) if n > 1 else sorted_affinities[0]
+    q3 = statistics.median(sorted_affinities[(n+1)//2:]) if n > 1 else sorted_affinities[-1]
+    iqr = q3 - q1
+    
+    # Additional percentiles
+    p25 = sorted_affinities[int(n * 0.25)] if n > 0 else sorted_affinities[0]
+    p75 = sorted_affinities[int(n * 0.75)] if n > 0 else sorted_affinities[-1]
+    p90 = sorted_affinities[int(n * 0.90)] if n > 0 else sorted_affinities[-1]
+    p10 = sorted_affinities[int(n * 0.10)] if n > 0 else sorted_affinities[0]
+    
+    # Skewness (measure of asymmetry)
+    if n > 2 and std_affinity > 0:
+        skewness = sum(((x - mean_affinity) / std_affinity) ** 3 for x in affinities) / n
+    else:
+        skewness = 0.0
+    
+    # Kurtosis (measure of tail heaviness)
+    if n > 3 and std_affinity > 0:
+        kurtosis = sum(((x - mean_affinity) / std_affinity) ** 4 for x in affinities) / n - 3.0
+    else:
+        kurtosis = 0.0
+    
+    # Coefficient of variation (relative variability)
+    cv = (std_affinity / abs(mean_affinity)) * 100 if mean_affinity != 0 else 0.0
+    
+    # Confidence interval (95% CI using t-distribution approximation)
+    # For large samples, use z-score; for small samples, use t-distribution
+    if n > 1:
+        # Using t-distribution approximation (t-value ≈ 1.96 for large n, higher for small n)
+        t_value = 2.0 if n >= 30 else (2.5 if n >= 10 else 3.0)
+        margin_error = t_value * (std_affinity / math.sqrt(n))
+        ci_lower = mean_affinity - margin_error
+        ci_upper = mean_affinity + margin_error
+    else:
+        ci_lower = mean_affinity
+        ci_upper = mean_affinity
+    
+    # Outlier detection using IQR method
+    outlier_threshold_low = q1 - 1.5 * iqr
+    outlier_threshold_high = q3 + 1.5 * iqr
+    outliers = [a for a in affinities if a < outlier_threshold_low or a > outlier_threshold_high]
+    
+    # Binding strength classification
+    strong_binders = [a for a in affinities if a < -7.0]
+    moderate_binders = [a for a in affinities if -7.0 <= a < -5.0]
+    weak_binders = [a for a in affinities if a >= -5.0]
+    
+    # Improved clustering metric (using standard deviation-based bins)
+    if std_affinity > 0:
+        # Cluster by standard deviation bins
+        num_clusters = max(1, int((max(affinities) - min(affinities)) / (std_affinity * 0.5)))
+    else:
+        num_clusters = 1
+    
+    # Confidence score based on multiple factors
+    # Factors: mean affinity, consistency (low std), pose consistency, number of poses
+    mean_pose_consistency = statistics.mean([
+        r.get("pose_consistency", 0.5) for r in results 
+        if r.get("pose_consistency") is not None
+    ]) if any(r.get("pose_consistency") is not None for r in results) else 0.5
+    
+    # Normalize confidence: better scores (< -7) + low variance + high pose consistency = high confidence
+    score_factor = min(1.0, max(0.0, (mean_affinity + 10) / 5))  # -10 to -5 maps to 0-1
+    consistency_factor = min(1.0, max(0.0, 1.0 - (std_affinity / 3.0)))  # Low std = high consistency
+    pose_factor = mean_pose_consistency
+    confidence_score = (score_factor * 0.4 + consistency_factor * 0.3 + pose_factor * 0.3)
     
     return {
+        # Basic statistics
         "mean_score": mean_affinity,
         "std_score": std_affinity,
+        "variance": variance,
         "min_score": min(affinities),
         "max_score": max(affinities),
-        "median_score": sorted(affinities)[len(affinities) // 2],
-        "num_clusters": len(set(round(a, 1) for a in affinities)),  # Rough clustering by score
+        "range": max(affinities) - min(affinities),
+        
+        # Central tendency
+        "median_score": median_score,
+        "mode_score": statistics.mode(affinities) if len(set(affinities)) < len(affinities) else None,
+        
+        # Percentiles
+        "percentile_10": p10,
+        "percentile_25": p25,
+        "percentile_75": p75,
+        "percentile_90": p90,
+        "interquartile_range": iqr,
+        
+        # Distribution measures
+        "skewness": skewness,
+        "kurtosis": kurtosis,
+        "coefficient_of_variation": cv,
+        
+        # Confidence intervals
+        "confidence_interval_95_lower": ci_lower,
+        "confidence_interval_95_upper": ci_upper,
+        "margin_of_error": margin_error if n > 1 else 0.0,
+        
+        # Outlier analysis
+        "num_outliers": len(outliers),
+        "outlier_threshold_low": outlier_threshold_low,
+        "outlier_threshold_high": outlier_threshold_high,
+        "outliers": outliers if len(outliers) <= 10 else outliers[:10],  # Limit outliers list
+        
+        # Binding strength distribution
+        "num_strong_binders": len(strong_binders),
+        "num_moderate_binders": len(moderate_binders),
+        "num_weak_binders": len(weak_binders),
+        "strong_binder_percentage": (len(strong_binders) / n) * 100 if n > 0 else 0.0,
+        
+        # Clustering and consistency
+        "num_clusters": num_clusters,
         "success_rate": 1.0,  # All results are successful at this point
-        "mean_num_modes": sum(num_modes_list) / len(num_modes_list) if num_modes_list else 0,
-        "confidence_score": min(1.0, max(0.0, (mean_affinity + 10) / 5))  # Normalize to 0-1
+        "mean_num_modes": statistics.mean(num_modes_list) if num_modes_list else 0,
+        "std_num_modes": statistics.stdev(num_modes_list) if len(num_modes_list) > 1 else 0,
+        "mean_pose_consistency": mean_pose_consistency,
+        
+        # Overall confidence
+        "confidence_score": confidence_score,
+        "sample_size": n
     }
 
 def perform_pose_clustering(results: List[Dict[str, Any]], rmsd_threshold: float = 2.0) -> List[Dict[str, Any]]:
     """
-    Perform simple pose clustering based on binding affinity.
+    Perform sophisticated pose clustering based on binding affinity with quality metrics.
+    
+    Uses adaptive binning based on data distribution and calculates cluster quality metrics.
     
     Args:
         results: List of docking results
-        rmsd_threshold: RMSD threshold for clustering (not used in simple version)
+        rmsd_threshold: RMSD threshold for clustering (for future RMSD-based clustering)
         
     Returns:
-        List of results with cluster information
+        List of results with enhanced cluster information including quality metrics
     """
     if not results:
         return []
     
-    # Simple clustering: group by similar binding affinity ranges
+    affinities = [r["binding_affinity"] for r in results]
+    if not affinities:
+        return []
+    
+    # Calculate optimal bin size using Freedman-Diaconis rule or adaptive approach
+    affinity_range = max(affinities) - min(affinities)
+    n = len(affinities)
+    
+    # Adaptive binning: use smaller bins for tighter distributions
+    if affinity_range < 2.0:
+        bin_size = 0.5  # 0.5 kcal/mol bins for tight distributions
+    elif affinity_range < 5.0:
+        bin_size = 1.0  # 1 kcal/mol bins for moderate distributions
+    else:
+        # Use Freedman-Diaconis rule for larger ranges
+        q1 = statistics.median(sorted(affinities)[:n//2]) if n > 1 else affinities[0]
+        q3 = statistics.median(sorted(affinities)[(n+1)//2:]) if n > 1 else affinities[-1]
+        iqr = q3 - q1
+        bin_size = max(0.5, min(2.0, 2 * iqr / (n ** (1/3)))) if iqr > 0 else 1.0
+    
+    # Perform clustering
     clusters = defaultdict(list)
     
     for idx, result in enumerate(results):
         affinity = result["binding_affinity"]
-        # Cluster by 1 kcal/mol bins
-        cluster_id = int(affinity // 1.0)
+        # Cluster by adaptive bins
+        cluster_id = int(affinity / bin_size)
         clusters[cluster_id].append({
             **result,
-            "cluster_id": cluster_id
+            "cluster_id": cluster_id,
+            "cluster_bin_center": cluster_id * bin_size + bin_size / 2
         })
     
-    # Sort clusters by best affinity in each cluster
+    # Calculate cluster quality metrics and sort
     clustered = []
+    cluster_metrics = {}
+    
     for cluster_id in sorted(clusters.keys()):
         cluster_results = clusters[cluster_id]
         cluster_results.sort(key=lambda x: x["binding_affinity"])
-        clustered.extend(cluster_results)
+        
+        # Calculate cluster statistics
+        cluster_affinities = [r["binding_affinity"] for r in cluster_results]
+        cluster_mean = statistics.mean(cluster_affinities)
+        cluster_std = statistics.stdev(cluster_affinities) if len(cluster_affinities) > 1 else 0.0
+        cluster_size = len(cluster_results)
+        
+        # Cluster quality: tighter clusters (lower std) with more members = higher quality
+        cluster_quality = min(1.0, cluster_size / 5.0) * (1.0 - min(1.0, cluster_std / 2.0))
+        
+        # Best pose in cluster
+        best_pose = cluster_results[0]
+        
+        # Calculate pose consistency within cluster
+        cluster_pose_consistencies = [
+            r.get("pose_consistency", 0.5) for r in cluster_results 
+            if r.get("pose_consistency") is not None
+        ]
+        cluster_pose_consistency = (
+            statistics.mean(cluster_pose_consistencies) 
+            if cluster_pose_consistencies else 0.5
+        )
+        
+        cluster_metrics[cluster_id] = {
+            "cluster_id": cluster_id,
+            "size": cluster_size,
+            "mean_affinity": cluster_mean,
+            "std_affinity": cluster_std,
+            "min_affinity": min(cluster_affinities),
+            "max_affinity": max(cluster_affinities),
+            "quality_score": cluster_quality,
+            "best_pose_affinity": best_pose["binding_affinity"],
+            "best_pose_name": best_pose.get("ligand_name", "unknown"),
+            "pose_consistency": cluster_pose_consistency,
+            "bin_size": bin_size
+        }
+        
+        # Add cluster metrics to each result in the cluster
+        for result in cluster_results:
+            result["cluster_metrics"] = cluster_metrics[cluster_id]
+            clustered.append(result)
+    
+    # Sort by cluster quality and then by affinity within clusters
+    clustered.sort(key=lambda x: (
+        -x.get("cluster_metrics", {}).get("quality_score", 0),
+        x["binding_affinity"]
+    ))
     
     return clustered
 
@@ -560,8 +801,14 @@ async def run_vina_docking(
         try:
             # Timeout based on exhaustiveness (more exhaustive = longer time)
             # Base timeout: 2 minutes per exhaustiveness level, max 20 minutes
-            timeout_seconds = min(1200, max(120, exhaustiveness * 120))
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
+            timeout_seconds = min(
+                MAX_DOCKING_TIMEOUT,
+                max(BASE_DOCKING_TIMEOUT, exhaustiveness * BASE_DOCKING_TIMEOUT)
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout_seconds
+            )
         except asyncio.TimeoutError:
             process.kill()
             raise VinaExecutionError(f"Vina docking timed out after {timeout_seconds} seconds")
@@ -609,33 +856,8 @@ async def parse_vina_log(log_file: Path, output_pdbqt: Optional[Path] = None) ->
     if not content:
         raise DockingParseError("Log file is empty")
     
-    lines = content.split('\n')
-    
-    # Parse binding modes
-    parsing_results = False
-    for line in lines:
-        if "mode |   affinity" in line or "-----+------------" in line:
-            parsing_results = True
-            continue
-        
-        if parsing_results and line.strip():
-            parts = line.split()
-            if len(parts) >= 4 and parts[0].isdigit():
-                try:
-                    mode = {
-                        "mode": int(parts[0]),
-                        "affinity": float(parts[1]),
-                        "rmsd_lb": float(parts[2]),
-                        "rmsd_ub": float(parts[3])
-                    }
-                    modes.append(mode)
-                except (ValueError, IndexError) as e:
-                    logger.warning(f"Failed to parse line in log file: {line[:100]}")
-                    # Don't break - continue parsing in case there are more valid lines
-                    continue
-    
-    if not modes:
-        raise DockingParseError("No valid docking modes found in log file")
+    # Use shared parsing function
+    modes = _parse_docking_modes_from_content(content, tool_name="Vina")
     
     # Calculate additional metrics
     best_affinity = modes[0]["affinity"]
@@ -649,14 +871,139 @@ async def parse_vina_log(log_file: Path, output_pdbqt: Optional[Path] = None) ->
         "output_pdbqt": str(output_pdbqt) if output_pdbqt else None
     }
     
-    # Add pose quality indicators
+    # Add comprehensive pose quality indicators
     if len(modes) > 1:
-        # Calculate consistency: how similar are the top poses?
-        top_3_affinities = [m["affinity"] for m in modes[:3]]
-        consistency = 1.0 - (max(top_3_affinities) - min(top_3_affinities)) / abs(min(top_3_affinities))
-        result["pose_consistency"] = max(0.0, min(1.0, consistency))
+        # Enhanced consistency calculation using multiple metrics
+        top_n_affinities = [m["affinity"] for m in modes[:POSE_CONSISTENCY_TOP_N]]
+        all_affinities = [m["affinity"] for m in modes]
+        
+        min_affinity = min(top_n_affinities)
+        max_top_n = max(top_n_affinities)
+        
+        # Metric 1: Top-N consistency (how similar are top poses)
+        if min_affinity != 0:
+            top_n_consistency = 1.0 - (max_top_n - min_affinity) / abs(min_affinity)
+            top_n_consistency = max(0.0, min(1.0, top_n_consistency))
+        else:
+            top_n_consistency = 0.0
+        
+        # Metric 2: Overall pose spread (coefficient of variation)
+        if len(all_affinities) > 1:
+            mean_affinity = statistics.mean(all_affinities)
+            std_affinity = statistics.stdev(all_affinities)
+            cv = (std_affinity / abs(mean_affinity)) * 100 if mean_affinity != 0 else 100.0
+            # Lower CV = higher consistency (normalize to 0-1)
+            spread_consistency = max(0.0, min(1.0, 1.0 - (cv / 50.0)))
+        else:
+            spread_consistency = 1.0
+        
+        # Metric 3: RMSD consistency (if RMSD data available)
+        rmsd_values = [m.get("rmsd_lb", 0) for m in modes if m.get("rmsd_lb") is not None]
+        rmsd_consistency = 0.5  # Default
+        if len(rmsd_values) > 1:
+            # Lower RMSD spread = higher consistency
+            rmsd_range = max(rmsd_values) - min(rmsd_values)
+            rmsd_consistency = max(0.0, min(1.0, 1.0 - (rmsd_range / 5.0)))
+        
+        # Combined consistency score (weighted average)
+        pose_consistency = (
+            top_n_consistency * 0.5 + 
+            spread_consistency * 0.3 + 
+            rmsd_consistency * 0.2
+        )
+        
+        result["pose_consistency"] = pose_consistency
+        result["top_n_consistency"] = top_n_consistency
+        result["spread_consistency"] = spread_consistency
+        result["rmsd_consistency"] = rmsd_consistency
+        
+        # Additional metrics
+        result["affinity_std"] = statistics.stdev(all_affinities) if len(all_affinities) > 1 else 0.0
+        result["affinity_cv"] = (result["affinity_std"] / abs(statistics.mean(all_affinities))) * 100 if statistics.mean(all_affinities) != 0 else 0.0
+    else:
+        result["pose_consistency"] = 1.0  # Single pose = perfect consistency
+        result["top_n_consistency"] = 1.0
+        result["spread_consistency"] = 1.0
+        result["rmsd_consistency"] = 1.0
+        result["affinity_std"] = 0.0
+        result["affinity_cv"] = 0.0
     
     return result
+
+
+def _parse_docking_modes_from_content(content: str, tool_name: str = "Vina") -> List[Dict[str, Any]]:
+    """
+    Shared function to parse docking modes from log file content.
+    
+    Args:
+        content: Log file content as string
+        tool_name: Name of the docking tool (for error messages)
+        
+    Returns:
+        List of parsed docking modes
+        
+    Raises:
+        DockingParseError: If parsing fails
+    """
+    modes = []
+    lines = content.split('\n')
+    
+    # Parse binding modes - both Vina and Gnina use similar formats
+    parsing_results = False
+    for line in lines:
+        # Check for header line that indicates start of results table
+        if ("mode |" in line and "affinity" in line.lower()) or "-----+------------" in line:
+            parsing_results = True
+            continue
+        
+        # Skip separator lines
+        if "-----" in line and parsing_results and not modes:
+            continue
+        
+        # Parse mode lines
+        if parsing_results and line.strip():
+            parts = line.split()
+            if len(parts) >= 4 and parts[0].isdigit():
+                try:
+                    mode = {
+                        "mode": int(parts[0]),
+                        "affinity": float(parts[1]),
+                        "rmsd_lb": float(parts[2]),
+                        "rmsd_ub": float(parts[3])
+                    }
+                    modes.append(mode)
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Failed to parse line in {tool_name} log file: {line[:100]}")
+                    # Don't break - continue parsing in case there are more valid lines
+                    continue
+    
+    if not modes:
+        raise DockingParseError(f"No valid docking modes found in {tool_name} log file")
+    
+    return modes
+
+
+def _calculate_pose_consistency(modes: List[Dict[str, Any]]) -> float:
+    """
+    Calculate pose consistency score from docking modes.
+    
+    Args:
+        modes: List of docking modes with affinity scores
+        
+    Returns:
+        Consistency score between 0.0 and 1.0
+    """
+    if len(modes) <= 1:
+        return 0.0
+    
+    top_n_affinities = [m["affinity"] for m in modes[:POSE_CONSISTENCY_TOP_N]]
+    min_affinity = min(top_n_affinities)
+    
+    if min_affinity == 0:
+        return 0.0
+    
+    consistency = 1.0 - (max(top_n_affinities) - min_affinity) / abs(min_affinity)
+    return max(0.0, min(1.0, consistency))
 
 
 async def run_gnina_docking(
@@ -710,9 +1057,15 @@ async def run_gnina_docking(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        timeout_seconds = min(1200, max(120, exhaustiveness * 120))
+        timeout_seconds = min(
+            MAX_DOCKING_TIMEOUT,
+            max(BASE_DOCKING_TIMEOUT, exhaustiveness * BASE_DOCKING_TIMEOUT)
+        )
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout_seconds
+            )
         except asyncio.TimeoutError:
             process.kill()
             raise GninaExecutionError(f"Gnina docking timed out after {timeout_seconds} seconds")
@@ -780,8 +1133,62 @@ async def parse_gnina_log(log_file: Path, output_pdbqt: Optional[Path] = None) -
         "affinity_range": affinity_range,
         "output_pdbqt": str(output_pdbqt) if output_pdbqt else None,
     }
+    
+    # Add comprehensive pose quality indicators (same as parse_vina_log)
     if len(modes) > 1:
-        top3 = [m["affinity"] for m in modes[:3]]
-        consistency = 1.0 - (max(top3) - min(top3)) / abs(min(top3) or 1e-9)
-        out["pose_consistency"] = max(0.0, min(1.0, consistency))
+        # Enhanced consistency calculation using multiple metrics
+        top_n_affinities = [m["affinity"] for m in modes[:POSE_CONSISTENCY_TOP_N]]
+        all_affinities = [m["affinity"] for m in modes]
+        
+        min_affinity = min(top_n_affinities)
+        max_top_n = max(top_n_affinities)
+        
+        # Metric 1: Top-N consistency (how similar are top poses)
+        if min_affinity != 0:
+            top_n_consistency = 1.0 - (max_top_n - min_affinity) / abs(min_affinity)
+            top_n_consistency = max(0.0, min(1.0, top_n_consistency))
+        else:
+            top_n_consistency = 0.0
+        
+        # Metric 2: Overall pose spread (coefficient of variation)
+        if len(all_affinities) > 1:
+            mean_affinity = statistics.mean(all_affinities)
+            std_affinity = statistics.stdev(all_affinities)
+            cv = (std_affinity / abs(mean_affinity)) * 100 if mean_affinity != 0 else 100.0
+            # Lower CV = higher consistency (normalize to 0-1)
+            spread_consistency = max(0.0, min(1.0, 1.0 - (cv / 50.0)))
+        else:
+            spread_consistency = 1.0
+        
+        # Metric 3: RMSD consistency (if RMSD data available)
+        rmsd_values = [m.get("rmsd_lb", 0) for m in modes if m.get("rmsd_lb") is not None]
+        rmsd_consistency = 0.5  # Default
+        if len(rmsd_values) > 1:
+            # Lower RMSD spread = higher consistency
+            rmsd_range = max(rmsd_values) - min(rmsd_values)
+            rmsd_consistency = max(0.0, min(1.0, 1.0 - (rmsd_range / 5.0)))
+        
+        # Combined consistency score (weighted average)
+        pose_consistency = (
+            top_n_consistency * 0.5 + 
+            spread_consistency * 0.3 + 
+            rmsd_consistency * 0.2
+        )
+        
+        out["pose_consistency"] = pose_consistency
+        out["top_n_consistency"] = top_n_consistency
+        out["spread_consistency"] = spread_consistency
+        out["rmsd_consistency"] = rmsd_consistency
+        
+        # Additional metrics
+        out["affinity_std"] = statistics.stdev(all_affinities) if len(all_affinities) > 1 else 0.0
+        out["affinity_cv"] = (out["affinity_std"] / abs(statistics.mean(all_affinities))) * 100 if statistics.mean(all_affinities) != 0 else 0.0
+    else:
+        out["pose_consistency"] = 1.0  # Single pose = perfect consistency
+        out["top_n_consistency"] = 1.0
+        out["spread_consistency"] = 1.0
+        out["rmsd_consistency"] = 1.0
+        out["affinity_std"] = 0.0
+        out["affinity_cv"] = 0.0
+    
     return out

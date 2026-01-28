@@ -5,6 +5,7 @@ from sqlalchemy import select
 from datetime import datetime
 
 from backend.database import async_session_maker
+from backend.config import settings
 from backend.models import Job, JobStatus
 from backend.services.alphafold import run_alphafold, extract_quality_metrics, ModelPreset, DatabasePreset
 from backend.services.docking import run_autodock_vina
@@ -350,7 +351,7 @@ async def run_docking_only(
         from backend.exceptions import FileProcessingError
         
         try:
-            pdb_dir = Path(f"/workspace/uploads/{job_id}")
+            pdb_dir = settings.UPLOADS_DIR / job_id
             pdb_dir.mkdir(parents=True, exist_ok=True)
             pdb_path = pdb_dir / "protein.pdb"
             

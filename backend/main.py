@@ -9,6 +9,7 @@ import traceback
 
 from backend.routes import jobs, health, blockchain, statistics
 from backend.database import init_db
+from backend.config import settings
 from backend.exceptions import (
     BackendError,
     ValidationError,
@@ -178,8 +179,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://*.vercel.app"],
-    allow_credentials=True,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -196,4 +197,9 @@ except ImportError:
     pass
 
 if __name__ == "__main__":
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "backend.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.RELOAD
+    )
