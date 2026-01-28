@@ -17,6 +17,8 @@ from backend.services.ai_report import (
     generate_followup_response,
     generate_ensemble_analysis,
     get_conversation_history,
+    suggest_visualizations,
+    generate_comparative_analysis,
     AIReportError
 )
 from backend.exceptions import ValidationError, DatabaseError, NotFoundError
@@ -542,6 +544,108 @@ async def get_job_conversation(
         raise
     except Exception as e:
         logger.error(f"Unexpected error getting conversation for job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/jobs/{job_id}/visualizations/suggestions")
+async def get_visualization_suggestions(
+    job_id: str,
+    analysis_type: str = "comprehensive",
+    db: AsyncSession = Depends(get_db)
+):
+    """Get AI-powered visualization suggestions for a job"""
+    from sqlalchemy import select
+    
+    if not job_id or not job_id.strip():
+        raise HTTPException(status_code=400, detail="Job ID is required")
+    
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID format")
+    
+    try:
+        result = await db.execute(select(Job).where(Job.id == job_id))
+        job = result.scalar_one_or_none()
+        
+        if not job:
+            raise NotFoundError(f"Job not found: {job_id}")
+        
+        if not job.docking_results:
+            raise HTTPException(
+                status_code=400,
+                detail="Job does not have docking results yet. Please wait for the job to complete."
+            )
+        
+        suggestions = await suggest_visualizations(
+            docking_results=job.docking_results,
+            analysis_type=analysis_type
+        )
+        
+        return {"job_id": job_id, "suggestions": suggestions}
+        
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error getting visualization suggestions for job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/jobs/compare")
+async def compare_jobs(
+    job_ids: List[str] = Body(..., embed=True),
+    stakeholder_type: str = Body(default="researcher", embed=True),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate comparative analysis across multiple jobs"""
+    from sqlalchemy import select
+    
+    if not job_ids or len(job_ids) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 job IDs required for comparison")
+    
+    try:
+        for job_id in job_ids:
+            uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID format")
+    
+    try:
+        docking_results_list = []
+        valid_job_ids = []
+        
+        for job_id in job_ids:
+            result = await db.execute(select(Job).where(Job.id == job_id))
+            job = result.scalar_one_or_none()
+            
+            if not job:
+                logger.warning(f"Job not found: {job_id}, skipping")
+                continue
+            
+            if not job.docking_results:
+                logger.warning(f"Job {job_id} does not have docking results, skipping")
+                continue
+            
+            docking_results_list.append(job.docking_results)
+            valid_job_ids.append(job_id)
+        
+        if len(valid_job_ids) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="At least 2 jobs with docking results required for comparison"
+            )
+        
+        comparison_result = await generate_comparative_analysis(
+            job_ids=valid_job_ids,
+            docking_results_list=docking_results_list,
+            stakeholder_type=stakeholder_type
+        )
+        
+        return comparison_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error comparing jobs: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/alphafold/predict", response_model=AlphaFoldPredictionResponse)

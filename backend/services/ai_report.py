@@ -1830,6 +1830,210 @@ def _combine_ensemble_results(results: List[Dict[str, Any]], stakeholder_type: s
     }
 
 # ============================================================================
+# VISUALIZATION SUGGESTIONS
+# ============================================================================
+
+async def suggest_visualizations(
+    docking_results: Dict[str, Any],
+    analysis_type: str = "comprehensive"
+) -> List[Dict[str, Any]]:
+    """
+    Suggest relevant visualizations based on docking results and analysis type
+    
+    Args:
+        docking_results: Docking simulation results
+        analysis_type: Type of analysis
+        
+    Returns:
+        List of suggested visualizations with metadata
+    """
+    suggestions = []
+    
+    # Always suggest basic visualizations
+    suggestions.append({
+        "type": "binding_affinity_chart",
+        "title": "Binding Affinity Distribution",
+        "description": "Histogram showing distribution of binding affinities across all ligands",
+        "priority": "high",
+        "data_available": bool(docking_results.get('results'))
+    })
+    
+    suggestions.append({
+        "type": "pose_clustering",
+        "title": "Pose Clustering Analysis",
+        "description": "Visualization of pose clusters and their binding modes",
+        "priority": "high",
+        "data_available": bool(docking_results.get('clustered_results'))
+    })
+    
+    # Analysis-type specific suggestions
+    if analysis_type in ["drug_likeness", "comprehensive"]:
+        suggestions.append({
+            "type": "drug_likeness_radar",
+            "title": "Drug-Likeness Radar Chart",
+            "description": "Radar chart showing drug-likeness properties (Lipinski, QED, etc.)",
+            "priority": "medium",
+            "data_available": True
+        })
+        
+        suggestions.append({
+            "type": "admet_properties",
+            "title": "ADMET Properties Panel",
+            "description": "Comprehensive ADMET property visualization",
+            "priority": "medium",
+            "data_available": True
+        })
+    
+    if analysis_type in ["toxicity", "comprehensive"]:
+        suggestions.append({
+            "type": "toxicity_heatmap",
+            "title": "Toxicity Risk Heatmap",
+            "description": "Heatmap showing various toxicity predictions",
+            "priority": "medium",
+            "data_available": True
+        })
+    
+    # Statistical visualizations
+    statistics = docking_results.get('statistics', {})
+    if statistics:
+        suggestions.append({
+            "type": "statistical_summary",
+            "title": "Statistical Summary Dashboard",
+            "description": "Comprehensive statistical analysis visualization",
+            "priority": "medium",
+            "data_available": True
+        })
+        
+        if statistics.get('num_clusters', 0) > 1:
+            suggestions.append({
+                "type": "cluster_comparison",
+                "title": "Cluster Comparison",
+                "description": "Compare binding affinities across different pose clusters",
+                "priority": "high",
+                "data_available": True
+            })
+    
+    # Interaction visualizations
+    results = docking_results.get('results', [])
+    if results:
+        suggestions.append({
+            "type": "interaction_heatmap",
+            "title": "Protein-Ligand Interactions",
+            "description": "Heatmap showing interaction patterns between protein and ligands",
+            "priority": "high",
+            "data_available": True
+        })
+        
+        suggestions.append({
+            "type": "molecular_viewer_3d",
+            "title": "3D Molecular Viewer",
+            "description": "Interactive 3D visualization of top binding poses",
+            "priority": "high",
+            "data_available": True
+        })
+    
+    # Sort by priority
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    suggestions.sort(key=lambda x: priority_order.get(x["priority"], 3))
+    
+    return suggestions
+
+# ============================================================================
+# COMPARATIVE ANALYSIS
+# ============================================================================
+
+async def generate_comparative_analysis(
+    job_ids: List[str],
+    docking_results_list: List[Dict[str, Any]],
+    stakeholder_type: str = "researcher"
+) -> Dict[str, Any]:
+    """
+    Generate comparative analysis across multiple jobs/ligands
+    
+    Args:
+        job_ids: List of job IDs to compare
+        docking_results_list: List of docking results dictionaries
+        stakeholder_type: Target audience
+        
+    Returns:
+        Comparative analysis dictionary
+    """
+    if len(job_ids) < 2:
+        raise ValueError("At least 2 jobs required for comparative analysis")
+    
+    if len(job_ids) != len(docking_results_list):
+        raise ValueError("Number of job IDs must match number of docking results")
+    
+    # Build comparative context
+    context = f"""
+# Comparative Analysis Across Multiple Docking Jobs
+
+## Jobs Compared:
+{', '.join(job_ids)}
+
+## Summary Statistics:
+"""
+    
+    for idx, (job_id, results) in enumerate(zip(job_ids, docking_results_list), 1):
+        best_score = results.get('best_score', 'N/A')
+        total_ligands = results.get('total_ligands', 0)
+        context += f"""
+### Job {idx} ({job_id[:8]}...):
+- Best Binding Affinity: {best_score} kcal/mol
+- Total Ligands Tested: {total_ligands}
+- Successful Ligands: {results.get('successful_ligands', 0)}
+"""
+        
+        statistics = results.get('statistics', {})
+        if statistics:
+            context += f"""
+- Mean Affinity: {statistics.get('mean_score', 'N/A'):.2f} kcal/mol
+- Standard Deviation: {statistics.get('std_score', 'N/A'):.2f} kcal/mol
+"""
+    
+    context += """
+## Comparative Analysis Request:
+Please provide a detailed comparison of these docking results, highlighting:
+1. Which job/ligand shows the best binding affinity and why
+2. Statistical differences between jobs
+3. Consistency of results across jobs
+4. Recommendations for selecting the best candidate
+5. Potential for combining insights from multiple jobs
+"""
+    
+    system_prompt = f"""You are an expert computational chemist specializing in comparative analysis of molecular docking results.
+Provide a detailed comparison tailored for a {stakeholder_type}, highlighting key differences, statistical significance, and actionable insights."""
+    
+    try:
+        if ANTHROPIC_API_KEY:
+            comparison_text = await generate_with_anthropic(context, stakeholder_type)
+        elif OPENAI_API_KEY:
+            comparison_text = await generate_with_openai(context, stakeholder_type)
+        else:
+            comparison_text = "Comparative analysis requires AI API keys to be configured."
+        
+        # Extract structured data
+        best_scores = [r.get('best_score') for r in docking_results_list]
+        best_scores_numeric = [s for s in best_scores if isinstance(s, (int, float))]
+        
+        return {
+            "comparison": comparison_text,
+            "summary": {
+                "jobs_compared": len(job_ids),
+                "best_overall_score": min(best_scores_numeric) if best_scores_numeric else None,
+                "best_job_index": best_scores_numeric.index(min(best_scores_numeric)) if best_scores_numeric else None,
+                "score_range": (min(best_scores_numeric), max(best_scores_numeric)) if best_scores_numeric else None
+            },
+            "metadata": {
+                "model": "claude-3-7-sonnet-20250219" if ANTHROPIC_API_KEY else ("gpt-4o" if OPENAI_API_KEY else "template"),
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error generating comparative analysis: {str(e)}", exc_info=True)
+        raise AIReportError(f"Failed to generate comparative analysis: {str(e)}")
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
