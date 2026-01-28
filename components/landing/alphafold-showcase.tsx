@@ -34,12 +34,42 @@ export function AlphaFoldShowcase() {
   ]
 
   const workflow = [
-    { step: 1, title: "Input Sequence", status: "complete" },
-    { step: 2, title: "AlphaFold Prediction", status: "complete" },
-    { step: 3, title: "Quality Assessment", status: "complete" },
-    { step: 4, title: "Binding Site Analysis", status: "complete" },
-    { step: 5, title: "Molecular Docking", status: "complete" },
-    { step: 6, title: "Therapeutic Insights", status: "complete" },
+    { 
+      step: 1, 
+      title: "Input Sequence", 
+      status: "complete",
+      description: "Protein sequence validated and prepared"
+    },
+    { 
+      step: 2, 
+      title: "AlphaFold Prediction", 
+      status: "complete",
+      description: "AI-powered 3D structure prediction"
+    },
+    { 
+      step: 3, 
+      title: "Quality Assessment", 
+      status: "complete",
+      description: "Structure confidence and reliability analysis"
+    },
+    { 
+      step: 4, 
+      title: "Binding Site Analysis", 
+      status: "complete",
+      description: "Identification of druggable pockets"
+    },
+    { 
+      step: 5, 
+      title: "Molecular Docking", 
+      status: "complete",
+      description: "Ligand-protein interaction simulation"
+    },
+    { 
+      step: 6, 
+      title: "Therapeutic Insights", 
+      status: "complete",
+      description: "AI-generated clinical and drug-likeness analysis"
+    },
   ]
 
   return (
@@ -96,8 +126,13 @@ export function AlphaFoldShowcase() {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="font-semibold text-sm sm:text-base">{item.title}</span>
-                        <Badge variant="secondary" className="text-xs">
+                        <div className="flex-1">
+                          <span className="font-semibold text-sm sm:text-base">{item.title}</span>
+                          {item.description && (
+                            <p className="text-xs text-muted-foreground mt-1">{item.description}</p>
+                          )}
+                        </div>
+                        <Badge variant="secondary" className="text-xs ml-2">
                           Complete
                         </Badge>
                       </div>

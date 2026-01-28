@@ -100,7 +100,9 @@ export function ReportGenerator({ jobId }: ReportGeneratorProps) {
           <FileText className="w-5 h-5 text-blue-500" />
           Report Generation
         </CardTitle>
-        <CardDescription>Generate stakeholder-specific reports with blockchain verification</CardDescription>
+        <CardDescription>
+          Generate stakeholder-specific reports with AI-powered clinical insights and recommendations
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {error && (
@@ -115,7 +117,7 @@ export function ReportGenerator({ jobId }: ReportGeneratorProps) {
               <Users className="w-4 h-4" />
               Target Audience
             </Label>
-            <Select value={stakeholderType} onValueChange={(value: any) => setStakeholderType(value)}>
+            <Select value={stakeholderType} onValueChange={(value: "researcher" | "investor" | "regulator" | "clinician") => setStakeholderType(value)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -123,25 +125,33 @@ export function ReportGenerator({ jobId }: ReportGeneratorProps) {
                 <SelectItem value="researcher">
                   <div className="flex flex-col items-start">
                     <span className="font-medium">Researcher</span>
-                    <span className="text-xs text-muted-foreground">Technical, method-focused</span>
+                    <span className="text-xs text-muted-foreground">
+                      Technical analysis, experimental validation, SAR insights
+                    </span>
                   </div>
                 </SelectItem>
                 <SelectItem value="investor">
                   <div className="flex flex-col items-start">
                     <span className="font-medium">Investor</span>
-                    <span className="text-xs text-muted-foreground">Business, ROI-focused</span>
+                    <span className="text-xs text-muted-foreground">
+                      Market opportunity, ROI, IP strategy, partnerships
+                    </span>
                   </div>
                 </SelectItem>
                 <SelectItem value="regulator">
                   <div className="flex flex-col items-start">
                     <span className="font-medium">Regulator</span>
-                    <span className="text-xs text-muted-foreground">Compliance, safety-focused</span>
+                    <span className="text-xs text-muted-foreground">
+                      Compliance, safety documentation, regulatory pathway
+                    </span>
                   </div>
                 </SelectItem>
                 <SelectItem value="clinician">
                   <div className="flex flex-col items-start">
                     <span className="font-medium">Clinician</span>
-                    <span className="text-xs text-muted-foreground">Patient, therapeutic-focused</span>
+                    <span className="text-xs text-muted-foreground">
+                      Therapeutic potential, dosing, safety, patient selection
+                    </span>
                   </div>
                 </SelectItem>
               </SelectContent>
@@ -237,10 +247,14 @@ export function ReportGenerator({ jobId }: ReportGeneratorProps) {
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                {stakeholderType === "researcher" && "Includes detailed methodology and technical analysis"}
-                {stakeholderType === "investor" && "Focuses on market opportunity and development timeline"}
-                {stakeholderType === "regulator" && "Emphasizes safety, compliance, and documentation"}
-                {stakeholderType === "clinician" && "Highlights therapeutic potential and clinical relevance"}
+                {stakeholderType === "researcher" &&
+                  "Includes detailed methodology, technical analysis, experimental validation recommendations, and SAR insights"}
+                {stakeholderType === "investor" &&
+                  "Focuses on market opportunity, development timeline, ROI analysis, IP strategy, and partnership recommendations"}
+                {stakeholderType === "regulator" &&
+                  "Emphasizes safety, compliance, documentation requirements, regulatory pathway, and submission readiness"}
+                {stakeholderType === "clinician" &&
+                  "Highlights therapeutic potential, clinical relevance, dosing strategies, safety profile, and patient selection criteria"}
               </p>
             </div>
             <Button onClick={handleDownload} variant="outline" className="w-full gap-2 bg-transparent">

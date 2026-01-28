@@ -8,6 +8,13 @@ import { WalletProvider } from "@/contexts/wallet-context";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import About from "./pages/About";
+import Contact from "./pages/Contact";
+import Dashboard from "./pages/Dashboard";
+import Blockchain from "./pages/Blockchain";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import Results from "./pages/Results";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +49,13 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Index />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/blockchain" element={<Blockchain />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+              <Route path="/results/:jobId" element={<Results />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

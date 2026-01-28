@@ -82,7 +82,7 @@ export function WalletButton() {
     )
   }
 
-  if (typeof window !== "undefined" && (window as any).solana?.isPhantom) {
+  if (typeof window !== "undefined" && (window as { solana?: { isPhantom?: boolean } }).solana?.isPhantom) {
     return (
       <Button onClick={connect} disabled={connecting} size="sm" variant="ghost" className="gap-2">
         {connecting ? (

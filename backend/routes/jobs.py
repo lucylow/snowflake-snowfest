@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List
@@ -6,9 +6,10 @@ import uuid
 import logging
 
 from backend.database import get_db
-from backend.schemas import JobCreate, JobResponse
+from backend.schemas import JobCreate, JobResponse, AIAnalysisRequest, AIAnalysisResponse, AlphaFoldPredictionRequest, AlphaFoldPredictionResponse
 from backend.models import Job, JobType
-from backend.services.workflow import run_alphafold_then_dock, run_docking_only
+from backend.services.workflow import run_alphafold_then_dock, run_docking_only, run_alphafold_only
+from backend.services.ai_report import generate_structured_ai_analysis, AIReportError
 from backend.exceptions import ValidationError, DatabaseError, NotFoundError
 
 logger = logging.getLogger(__name__)
@@ -148,4 +149,140 @@ async def list_jobs(db: AsyncSession = Depends(get_db), skip: int = 0, limit: in
         raise HTTPException(status_code=500, detail="Database error retrieving jobs")
     except Exception as e:
         logger.error(f"Unexpected error listing jobs: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/jobs/{job_id}/analyze", response_model=AIAnalysisResponse)
+async def analyze_job(
+    job_id: str,
+    analysis_request: AIAnalysisRequest = Body(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate AI analysis for a completed job"""
+    from sqlalchemy import select
+    
+    if not job_id or not job_id.strip():
+        raise HTTPException(status_code=400, detail="Job ID is required")
+    
+    # Validate UUID format
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID format")
+    
+    try:
+        # Get job from database
+        result = await db.execute(select(Job).where(Job.id == job_id))
+        job = result.scalar_one_or_none()
+        
+        if not job:
+            raise NotFoundError(f"Job not found: {job_id}")
+        
+        # Check if job has docking results
+        if not job.docking_results:
+            raise HTTPException(
+                status_code=400,
+                detail="Job does not have docking results yet. Please wait for the job to complete."
+            )
+        
+        # Generate structured AI analysis
+        try:
+            analysis_result = await generate_structured_ai_analysis(
+                job_id=job_id,
+                sequence=job.protein_sequence,
+                plddt_score=job.plddt_score,
+                docking_results=job.docking_results,
+                analysis_type=analysis_request.analysis_type,
+                custom_prompt=analysis_request.custom_prompt,
+                stakeholder_type=analysis_request.stakeholder_type
+            )
+            
+            # Ensure response matches expected format
+            if "analysis" not in analysis_result:
+                # Handle case where function returns different structure
+                analysis_result = {
+                    "analysis": analysis_result,
+                    "recommendations": analysis_result.get("recommendations", []),
+                    "confidence": analysis_result.get("confidence", 0.75),
+                    "metadata": analysis_result.get("metadata", {})
+                }
+            
+            return analysis_result
+        except AIReportError as e:
+            logger.error(f"AI analysis error for job {job_id}: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
+        
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error analyzing job {job_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/alphafold/predict", response_model=AlphaFoldPredictionResponse)
+async def predict_structure(
+    request: AlphaFoldPredictionRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    """Submit an AlphaFold-only structure prediction job (no docking)"""
+    
+    try:
+        # Validate sequence
+        if not request.protein_sequence or not request.protein_sequence.strip():
+            raise ValidationError("protein_sequence is required")
+        
+        # Create job record
+        job_id = str(uuid.uuid4())
+        db_job = Job(
+            id=job_id,
+            job_name=request.job_name or f"AlphaFold Prediction {job_id[:8]}",
+            job_type=JobType.ALPHAFOLD_ONLY,
+            protein_sequence=request.protein_sequence,
+            ligand_files=None,  # No ligands for AlphaFold-only
+            docking_parameters=None  # No docking for AlphaFold-only
+        )
+        
+        try:
+            db.add(db_job)
+            await db.commit()
+            await db.refresh(db_job)
+        except SQLAlchemyError as e:
+            logger.error(f"Database error creating AlphaFold job: {str(e)}", exc_info=True)
+            await db.rollback()
+            raise DatabaseError(f"Failed to create job in database: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error creating AlphaFold job: {str(e)}", exc_info=True)
+            await db.rollback()
+            raise HTTPException(status_code=500, detail="Failed to create job")
+        
+        # Extract configuration
+        config = request.alphafold_config
+        model_preset = config.model_preset if config else "monomer"
+        max_template_date = config.max_template_date if config else None
+        db_preset = config.db_preset if config else "reduced_dbs"
+        use_gpu_relax = config.use_gpu_relax if config else True
+        
+        # Submit background task
+        try:
+            background_tasks.add_task(
+                run_alphafold_only,
+                job_id=job_id,
+                sequence=request.protein_sequence,
+                model_preset=model_preset,
+                max_template_date=max_template_date,
+                db_preset=db_preset,
+                use_gpu_relax=use_gpu_relax
+            )
+        except Exception as e:
+            logger.error(f"Failed to submit AlphaFold background task for job {job_id}: {str(e)}", exc_info=True)
+            # Job is already created, so we log the error but don't fail the request
+        
+        return db_job
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except DatabaseError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error in predict_structure: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")

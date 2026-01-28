@@ -10,3 +10,5 @@ celery==5.3.6
 requests==2.31.0
 httpx==0.26.0
 python-dotenv==1.0.0
+rdkit-pypi==2023.9.1
+numpy==1.26.3

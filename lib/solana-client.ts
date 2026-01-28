@@ -212,7 +212,7 @@ export class SolanaClient {
       reportContent: string | Buffer
       reportType: string
       stakeholder: string
-      metadata?: any
+      metadata?: Record<string, unknown>
     },
   ) {
     const sdk = this.getNeuravivaSDK()

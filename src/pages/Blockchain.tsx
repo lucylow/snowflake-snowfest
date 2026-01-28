@@ -1,5 +1,3 @@
-"use client"
-
 import { useState, useEffect } from "react"
 import { Header } from "@/components/landing/header"
 import { Footer } from "@/components/landing/footer"
@@ -27,7 +25,7 @@ import { solanaClient } from "@/lib/solana-client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { mockBlockchainTransactions } from "@/lib/mock-data"
 
-export default function BlockchainPage() {
+export default function Blockchain() {
   const { connected, publicKey, connect } = useWallet()
   const [txSignature, setTxSignature] = useState("")
   const [verificationResult, setVerificationResult] = useState<Record<string, unknown> | null>(null)
@@ -131,7 +129,7 @@ export default function BlockchainPage() {
       return
     }
 
-    const network = process.env.NEXT_PUBLIC_SOLANA_NETWORK || "devnet"
+    const network = import.meta.env.VITE_SOLANA_NETWORK || "devnet"
     if (network === "mainnet-beta") {
       setError("Airdrop is not available on mainnet")
       return
@@ -160,7 +158,7 @@ export default function BlockchainPage() {
   }
 
   const viewOnExplorer = (signature: string) => {
-    const network = process.env.NEXT_PUBLIC_SOLANA_NETWORK || "devnet"
+    const network = import.meta.env.VITE_SOLANA_NETWORK || "devnet"
     window.open(`https://explorer.solana.com/tx/${signature}?cluster=${network}`, "_blank")
   }
 
@@ -197,7 +195,7 @@ export default function BlockchainPage() {
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Network</span>
-                <Badge variant="secondary">{(process.env.NEXT_PUBLIC_SOLANA_NETWORK || "devnet").toUpperCase()}</Badge>
+                <Badge variant="secondary">{(import.meta.env.VITE_SOLANA_NETWORK || "devnet").toUpperCase()}</Badge>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Status</span>
@@ -279,7 +277,7 @@ export default function BlockchainPage() {
                 className="w-full gap-2 bg-transparent"
                 onClick={() =>
                   window.open(
-                    `https://explorer.solana.com/?cluster=${process.env.NEXT_PUBLIC_SOLANA_NETWORK || "devnet"}`,
+                    `https://explorer.solana.com/?cluster=${import.meta.env.VITE_SOLANA_NETWORK || "devnet"}`,
                     "_blank",
                   )
                 }
@@ -376,7 +374,7 @@ export default function BlockchainPage() {
                         size="sm"
                         variant="outline"
                         className="gap-2 bg-transparent"
-                        onClick={() => viewOnExplorer(verificationResult.signature)}
+                        onClick={() => viewOnExplorer(verificationResult.signature as string)}
                       >
                         <ExternalLink className="w-3 h-3" />
                         Explorer
@@ -394,7 +392,7 @@ export default function BlockchainPage() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => copyToClipboard(verificationResult.signature)}
+                              onClick={() => copyToClipboard(verificationResult.signature as string)}
                             >
                               {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                             </Button>
@@ -406,7 +404,7 @@ export default function BlockchainPage() {
                               <span className="text-muted-foreground">Block Time:</span>
                               <span className="ml-2 font-mono">
                                 {verificationResult.details.blockTime
-                                  ? new Date(verificationResult.details.blockTime * 1000).toLocaleString()
+                                  ? new Date((verificationResult.details.blockTime as number) * 1000).toLocaleString()
                                   : "N/A"}
                               </span>
                             </div>
@@ -446,7 +444,7 @@ export default function BlockchainPage() {
                                 <span className="text-muted-foreground">Timestamp:</span>
                                 <div className="flex items-center gap-1 mt-1">
                                   <Calendar className="w-3 h-3" />
-                                  <span className="text-xs">{new Date(reportData.timestamp).toLocaleDateString()}</span>
+                                  <span className="text-xs">{new Date(reportData.timestamp as string).toLocaleDateString()}</span>
                                 </div>
                               </div>
                             </div>

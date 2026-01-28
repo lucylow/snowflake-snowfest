@@ -33,6 +33,64 @@ export interface AIAnalysisResponse {
     tokenCount: number
     costEstimate: number
   }
+  admet_properties?: {
+    absorption?: {
+      gi_absorption?: { score?: number; prediction?: string }
+      bioavailability?: { score?: number; prediction?: string; percentage?: number }
+      solubility?: { log_s?: number; prediction?: string }
+    }
+    distribution?: {
+      bbb_permeability?: { score?: number; prediction?: string; log_bb?: number }
+      pgp_substrate?: { is_substrate?: boolean; probability?: number }
+      vd_prediction?: { value?: number; interpretation?: string }
+    }
+    metabolism?: {
+      cyp_inhibition?: Record<string, { probability?: number; likely?: boolean }>
+      half_life?: { hours?: number; interpretation?: string }
+      metabolic_stability?: { score?: number; prediction?: string }
+    }
+    excretion?: {
+      clearance?: { value?: number; unit?: string; interpretation?: string }
+      renal_clearance?: { value?: number; unit?: string; prediction?: string }
+    }
+  }
+  toxicity_predictions?: {
+    structural_alerts?: {
+      count?: number
+      alerts?: Array<{ name?: string; severity?: string }>
+      risk_level?: string
+    }
+    ld50?: {
+      value?: number
+      unit?: string
+      category?: string
+      risk_level?: string
+    }
+    hepatotoxicity?: {
+      probability?: number
+      risk_level?: string
+    }
+    mutagenicity?: {
+      ames_test?: { probability?: number }
+      prediction?: string
+    }
+    carcinogenicity?: {
+      probability?: number
+      risk_level?: string
+    }
+    herg_inhibition?: {
+      probability?: number
+      risk_level?: string
+    }
+    skin_sensitization?: {
+      probability?: number
+      risk_level?: string
+    }
+    overall_toxicity_risk?: {
+      score?: number
+      level?: string
+    }
+  }
 }
 
 class AIAgent {

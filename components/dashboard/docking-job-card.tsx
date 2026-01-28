@@ -60,12 +60,30 @@ export function DockingJobCard({ job }: DockingJobCardProps) {
       </div>
 
       {job.plddt_score !== undefined && (
-        <div className="mt-4 flex items-center justify-between px-3 py-2 bg-muted/50 rounded-md">
-          <span className="text-sm text-muted-foreground">AlphaFold Confidence</span>
-          <span className="text-sm font-medium">
-            {job.plddt_score.toFixed(1)}
-            <span className="text-muted-foreground">/100</span>
-          </span>
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center justify-between px-3 py-2 bg-muted/50 rounded-md">
+            <span className="text-sm text-muted-foreground">AlphaFold Confidence</span>
+            <span className="text-sm font-medium">
+              {job.plddt_score.toFixed(1)}
+              <span className="text-muted-foreground">/100</span>
+            </span>
+          </div>
+          {job.quality_metrics && (
+            <div className="px-3 py-2 bg-muted/30 rounded-md text-xs">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-muted-foreground">High Confidence:</span>
+                <span className="font-medium">
+                  {job.quality_metrics.confidence_regions.very_high + job.quality_metrics.confidence_regions.confident} residues
+                </span>
+              </div>
+              {job.quality_metrics.pae_score !== null && job.quality_metrics.pae_score !== undefined && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">PAE Score:</span>
+                  <span className="font-medium">{job.quality_metrics.pae_score.toFixed(2)} Å</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

@@ -5,7 +5,8 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any, List
+from enum import Enum
 
 import aiofiles
 
@@ -27,20 +28,45 @@ class AlphaFoldCacheError(AlphaFoldError):
     """Error accessing AlphaFold cache"""
     pass
 
+class ModelPreset(str, Enum):
+    """AlphaFold model presets"""
+    MONOMER = "monomer"
+    MONOMER_PTM = "monomer_ptm"  # With predicted transmembrane regions
+    MULTIMER = "multimer"  # For protein complexes
+    MULTIMER_V2 = "multimer_v2"  # Updated multimer model
+
+class DatabasePreset(str, Enum):
+    """AlphaFold database presets"""
+    REDUCED_DBS = "reduced_dbs"  # Faster, smaller databases
+    FULL_DBS = "full_dbs"  # Complete databases for highest accuracy
+
 ALPHAFOLD_IMAGE = os.getenv("ALPHAFOLD_DOCKER_IMAGE", "alphafold")
 ALPHAFOLD_DATA_DIR = os.getenv("ALPHAFOLD_DATA_DIR", "/data/alphafold")
 USE_CLOUD_API = os.getenv("ALPHAFOLD_USE_CLOUD_API", "false").lower() == "true"
 
-async def run_alphafold(sequence: str, job_id: str) -> Tuple[Path, float]:
+async def run_alphafold(
+    sequence: str, 
+    job_id: str,
+    model_preset: ModelPreset = ModelPreset.MONOMER,
+    max_template_date: Optional[str] = None,
+    db_preset: DatabasePreset = DatabasePreset.REDUCED_DBS,
+    use_gpu_relax: bool = True,
+    progress_callback: Optional[callable] = None
+) -> Tuple[Path, float, Dict[str, Any]]:
     """
     Run AlphaFold structure prediction on a protein sequence.
     
     Args:
         sequence: Amino acid sequence (FASTA format)
         job_id: Unique job identifier
+        model_preset: AlphaFold model preset (monomer, multimer, etc.)
+        max_template_date: Maximum template date (YYYY-MM-DD format)
+        db_preset: Database preset (reduced_dbs or full_dbs)
+        use_gpu_relax: Whether to use GPU-accelerated relaxation
+        progress_callback: Optional callback function(status: str, progress: float)
         
     Returns:
-        Tuple of (predicted_pdb_path, plddt_confidence_score)
+        Tuple of (predicted_pdb_path, plddt_confidence_score, quality_metrics)
         
     Raises:
         AlphaFoldError: If prediction fails
@@ -178,6 +204,9 @@ async def run_alphafold_docker(sequence: str, job_id: str) -> Tuple[Path, float]
             logger.warning(f"Failed to cache structure for job {job_id}: {str(e)}")
             # Don't fail the whole operation if caching fails
         
+        if progress_callback:
+            await progress_callback("Prediction completed", 1.0)
+        
         logger.info(f"AlphaFold completed for job {job_id}, pLDDT: {plddt_score:.2f}")
         return predicted_pdb, plddt_score
         
@@ -204,19 +233,35 @@ async def run_alphafold_cloud(sequence: str, job_id: str) -> Tuple[Path, float]:
     
     logger.info(f"Submitting job {job_id} to BioNeMo Cloud API")
     
+    if progress_callback:
+        await progress_callback("Submitting to cloud API", 0.1)
+    
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             # Submit prediction request
             try:
+                # Map model preset to API model name
+                model_name = "alphafold2"
+                if model_preset == ModelPreset.MULTIMER or model_preset == ModelPreset.MULTIMER_V2:
+                    model_name = "alphafold2_multimer"
+                
+                request_data = {
+                    "sequence": sequence,
+                    "model": model_name,
+                    "output_format": "pdb",
+                    "include_confidence": True
+                }
+                
+                if max_template_date:
+                    request_data["max_template_date"] = max_template_date
+                
+                if progress_callback:
+                    await progress_callback("Waiting for cloud prediction", 0.2)
+                
                 response = await client.post(
                     "https://api.bionemo.nvidia.com/v1/protein/structure/predict",
                     headers={"Authorization": f"Bearer {api_key}"},
-                    json={
-                        "sequence": sequence,
-                        "model": "alphafold2",
-                        "output_format": "pdb",
-                        "include_confidence": True
-                    }
+                    json=request_data
                 )
             except httpx.TimeoutException:
                 raise AlphaFoldAPIError("BioNeMo API request timed out after 5 minutes")
@@ -276,6 +321,9 @@ async def run_alphafold_cloud(sequence: str, job_id: str) -> Tuple[Path, float]:
             except Exception as e:
                 logger.warning(f"Failed to cache structure for job {job_id}: {str(e)}")
             
+            if progress_callback:
+                await progress_callback("Prediction completed", 1.0)
+            
             logger.info(f"BioNeMo prediction completed for job {job_id}, pLDDT: {plddt_score:.2f}")
             return predicted_pdb, float(plddt_score)
             
@@ -284,6 +332,113 @@ async def run_alphafold_cloud(sequence: str, job_id: str) -> Tuple[Path, float]:
     except Exception as e:
         logger.error(f"Unexpected error in BioNeMo API call for job {job_id}: {str(e)}", exc_info=True)
         raise AlphaFoldAPIError(f"Unexpected error calling BioNeMo API: {str(e)}") from e
+
+async def extract_quality_metrics(pdb_path: Path) -> Dict[str, Any]:
+    """
+    Extract comprehensive quality metrics from AlphaFold output.
+    
+    Returns:
+        Dictionary with quality metrics including:
+        - plddt_score: Average pLDDT confidence score
+        - pae_score: Predicted aligned error (if available)
+        - per_residue_plddt: Per-residue confidence scores
+        - confidence_regions: High/medium/low confidence region counts
+        - structure_length: Number of residues
+    """
+    metrics = {
+        "plddt_score": 0.0,
+        "pae_score": None,
+        "per_residue_plddt": [],
+        "confidence_regions": {
+            "very_high": 0,  # pLDDT >= 90
+            "confident": 0,  # 70 <= pLDDT < 90
+            "low": 0,  # 50 <= pLDDT < 70
+            "very_low": 0   # pLDDT < 50
+        },
+        "structure_length": 0
+    }
+    
+    output_dir = pdb_path.parent
+    
+    # Extract pLDDT from PDB file
+    if pdb_path.exists():
+        try:
+            plddts = []
+            async with aiofiles.open(pdb_path, 'r') as f:
+                async for line in f:
+                    if line.startswith("ATOM"):
+                        try:
+                            plddt_str = line[60:66].strip()
+                            if plddt_str:
+                                plddt = float(plddt_str)
+                                if 0 <= plddt <= 100:
+                                    plddts.append(plddt)
+                        except (ValueError, IndexError):
+                            continue
+            
+            if plddts:
+                metrics["plddt_score"] = sum(plddts) / len(plddts)
+                
+                # Extract per-residue pLDDT (group by residue number)
+                residue_plddts = {}
+                async with aiofiles.open(pdb_path, 'r') as f:
+                    async for line in f:
+                        if line.startswith("ATOM"):
+                            try:
+                                residue_num = int(line[22:26].strip())
+                                plddt_str = line[60:66].strip()
+                                if plddt_str:
+                                    plddt = float(plddt_str)
+                                    if 0 <= plddt <= 100:
+                                        if residue_num not in residue_plddts:
+                                            residue_plddts[residue_num] = []
+                                        residue_plddts[residue_num].append(plddt)
+                            except (ValueError, IndexError):
+                                continue
+                
+                # Average pLDDT per residue
+                metrics["per_residue_plddt"] = [
+                    sum(plddt_list) / len(plddt_list) 
+                    for residue_num in sorted(residue_plddts.keys())
+                    for plddt_list in [residue_plddts[residue_num]]
+                ]
+                metrics["structure_length"] = len(residue_plddts)
+                
+                # Count confidence regions
+                for plddt in plddts:
+                    if plddt >= 90:
+                        metrics["confidence_regions"]["very_high"] += 1
+                    elif plddt >= 70:
+                        metrics["confidence_regions"]["confident"] += 1
+                    elif plddt >= 50:
+                        metrics["confidence_regions"]["low"] += 1
+                    else:
+                        metrics["confidence_regions"]["very_low"] += 1
+        except IOError as e:
+            logger.warning(f"Failed to read PDB file for quality metrics: {str(e)}")
+    
+    # Try to extract PAE (Predicted Aligned Error) from JSON files
+    pae_file = output_dir / "ranking_debug.json"
+    if pae_file.exists():
+        try:
+            async with aiofiles.open(pae_file, 'r') as f:
+                content = await f.read()
+                try:
+                    data = json.loads(content)
+                    if "pae" in data:
+                        pae_matrix = data["pae"]
+                        if isinstance(pae_matrix, list) and len(pae_matrix) > 0:
+                            # Calculate average PAE
+                            total_pae = sum(sum(row) for row in pae_matrix if isinstance(row, list))
+                            num_elements = sum(len(row) for row in pae_matrix if isinstance(row, list))
+                            if num_elements > 0:
+                                metrics["pae_score"] = total_pae / num_elements
+                except (ValueError, KeyError, TypeError) as e:
+                    logger.warning(f"Failed to parse PAE from ranking_debug.json: {str(e)}")
+        except IOError as e:
+            logger.warning(f"Failed to read ranking_debug.json: {str(e)}")
+    
+    return metrics
 
 async def extract_plddt_score(output_dir: Path) -> float:
     """Extract average pLDDT confidence score from AlphaFold output"""
@@ -340,7 +495,7 @@ async def extract_plddt_score(output_dir: Path) -> float:
     logger.warning("Could not extract pLDDT score, using default 0.0")
     return 0.0
 
-async def get_cached_structure(sequence: str) -> Optional[Tuple[Path, float]]:
+async def get_cached_structure(sequence: str) -> Optional[Tuple[Path, float, Dict[str, Any]]]:
     """Check if structure prediction is cached"""
     try:
         seq_hash = hashlib.sha256(sequence.encode()).hexdigest()
@@ -411,9 +566,12 @@ async def cache_structure(sequence: str, pdb_path: Path, plddt_score: float):
         # Save metadata
         try:
             import json
+            # Extract quality metrics for caching
+            quality_metrics = await extract_quality_metrics(pdb_path)
             meta = {
                 "sequence_hash": seq_hash,
                 "plddt_score": float(plddt_score),
+                "quality_metrics": quality_metrics,
                 "cached_at": datetime.now().isoformat()
             }
             async with aiofiles.open(cache_meta, 'w') as f:

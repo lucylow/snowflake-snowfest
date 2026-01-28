@@ -8,7 +8,7 @@ export interface ReportData {
   reportHash: string
   reportType: string
   stakeholder: string
-  metadata: any
+  metadata: Record<string, unknown>
   timestamp: number
   verified: boolean
   verifiedAt?: number
@@ -123,12 +123,12 @@ export class NeuravivaSDK {
         signature,
         explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=${this.network}`,
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`${LOG_PREFIX} Failed to initialize storage:`, error)
       return {
         success: false,
         transactionHash: "",
-        error: error.message || "Failed to initialize storage",
+        error: error instanceof Error ? error.message : "Failed to initialize storage",
       }
     }
   }
@@ -144,7 +144,7 @@ export class NeuravivaSDK {
       reportContent: string | Buffer
       reportType: string
       stakeholder: string
-      metadata?: any
+      metadata?: Record<string, unknown>
     },
   ): Promise<TransactionResult> {
     try {
@@ -239,12 +239,12 @@ export class NeuravivaSDK {
         signature,
         explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=${this.network}`,
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`${LOG_PREFIX} Failed to store report hash:`, error)
       return {
         success: false,
         transactionHash: "",
-        error: error.message || "Failed to store report hash",
+        error: error instanceof Error ? error.message : "Failed to store report hash",
       }
     }
   }
@@ -302,12 +302,12 @@ export class NeuravivaSDK {
         signature,
         explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=${this.network}`,
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`${LOG_PREFIX} Failed to verify report:`, error)
       return {
         success: false,
         transactionHash: "",
-        error: error.message || "Failed to verify report",
+        error: error instanceof Error ? error.message : "Failed to verify report",
       }
     }
   }
@@ -324,9 +324,9 @@ export class NeuravivaSDK {
       }
 
       // Parse memo data from transaction
-      const message = transaction.transaction.message as any
+      const message = transaction.transaction.message as { instructions?: Array<{ programId?: string; programIdIndex?: number; data?: Uint8Array }>; compiledInstructions?: Array<{ programId?: string; programIdIndex?: number; data?: Uint8Array }>; staticAccountKeys?: Array<{ toString: () => string }> }
       const instructions = message.instructions || message.compiledInstructions || []
-      const memoInstruction = instructions.find((ix: any) => {
+      const memoInstruction = instructions.find((ix: { programId?: string; programIdIndex?: number; data?: Uint8Array }) => {
         const programId = ix.programId?.toString() || (message.staticAccountKeys?.[ix.programIdIndex]?.toString())
         return programId === "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
       })
@@ -335,7 +335,7 @@ export class NeuravivaSDK {
         return null
       }
 
-      const memoData = Buffer.from((memoInstruction as any).data).toString()
+      const memoData = Buffer.from((memoInstruction as { data: Uint8Array }).data).toString()
       const reportData = JSON.parse(memoData)
 
       return {

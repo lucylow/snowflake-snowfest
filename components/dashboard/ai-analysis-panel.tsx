@@ -8,8 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Sparkles, Loader2, Copy, Check, AlertCircle, TrendingUp, Activity, Zap } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { aiAgent, type AIAnalysisRequest } from "@/lib/ai-agent"
-import { mockAIAnalyses } from "@/lib/mock-data"
+import { aiAgent, type AIAnalysisRequest, type AIAnalysisResponse } from "@/lib/ai-agent"
 import { AIConfidenceChart } from "./ai-confidence-chart"
 import { DrugLikenessRadar } from "./drug-likeness-radar"
 import { InteractionHeatmap } from "./interaction-heatmap"
@@ -22,7 +21,7 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
   const [analysisType, setAnalysisType] = useState<AIAnalysisRequest["analysisType"]>("comprehensive")
   const [stakeholderType, setStakeholderType] = useState<AIAnalysisRequest["stakeholderType"]>("researcher")
   const [customPrompt, setCustomPrompt] = useState("")
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<AIAnalysisResponse | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -36,7 +35,7 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
       if (mockData) {
         await new Promise((resolve) => setTimeout(resolve, 1500))
 
-        const stakeholderData = mockData[stakeholderType as keyof typeof mockData] as any
+        const stakeholderData = mockData[stakeholderType as keyof typeof mockData] as Record<string, unknown>
         if (stakeholderData) {
           setResult({
             analysis: {
@@ -128,7 +127,7 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Analysis Type</label>
-              <Select value={analysisType} onValueChange={(value: any) => setAnalysisType(value)}>
+              <Select value={analysisType} onValueChange={(value: AIAnalysisRequest["analysisType"]) => setAnalysisType(value)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -144,7 +143,7 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Stakeholder Perspective</label>
-              <Select value={stakeholderType} onValueChange={(value: any) => setStakeholderType(value)}>
+              <Select value={stakeholderType} onValueChange={(value: AIAnalysisRequest["stakeholderType"]) => setStakeholderType(value)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -237,7 +236,7 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
                           <h6 className="text-sm font-medium capitalize mb-1">{key.replace(/_/g, " ")}</h6>
                           {typeof value === "object" ? (
                             <div className="space-y-1">
-                              {Object.entries(value as Record<string, any>).map(([subKey, subValue]) => (
+                              {Object.entries(value as Record<string, unknown>).map(([subKey, subValue]) => (
                                 <div key={subKey} className="text-sm text-muted-foreground">
                                   <span className="font-medium capitalize">{subKey.replace(/_/g, " ")}:</span>{" "}
                                   {Array.isArray(subValue) ? (
@@ -263,15 +262,41 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
 
                 {result.recommendations && result.recommendations.length > 0 && (
                   <div>
-                    <h5 className="font-semibold mb-2">Recommendations ({stakeholderType})</h5>
-                    <ul className="space-y-2">
-                      {result.recommendations.map((rec: string, idx: number) => (
-                        <li key={idx} className="flex items-start gap-2 text-sm">
-                          <span className="text-primary mt-0.5">•</span>
-                          <span>{rec}</span>
-                        </li>
-                      ))}
-                    </ul>
+                    <h5 className="font-semibold mb-2">
+                      AI-Powered Recommendations ({stakeholderType.charAt(0).toUpperCase() + stakeholderType.slice(1)})
+                    </h5>
+                    <div className="p-3 bg-primary/5 rounded-lg border border-primary/10">
+                      <ul className="space-y-2">
+                        {result.recommendations.map((rec: string, idx: number) => (
+                          <li key={idx} className="flex items-start gap-2 text-sm">
+                            <span className="text-primary mt-0.5 font-bold">→</span>
+                            <span className="text-foreground">{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+                
+                {result.analysis.detailed_analysis?.clinical_insights && (
+                  <div>
+                    <h5 className="font-semibold mb-2">Clinical Insights</h5>
+                    <div className="p-4 bg-muted/50 rounded-lg text-sm leading-relaxed">
+                      {typeof result.analysis.detailed_analysis.clinical_insights === "string" ? (
+                        <p>{result.analysis.detailed_analysis.clinical_insights}</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {Object.entries(result.analysis.detailed_analysis.clinical_insights as Record<string, unknown>).map(
+                            ([key, value]) => (
+                              <div key={key}>
+                                <span className="font-medium capitalize">{key.replace(/_/g, " ")}:</span>{" "}
+                                <span>{String(value)}</span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -293,10 +318,21 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
       </Card>
 
       {result && (
-        <div className="grid lg:grid-cols-2 gap-6">
-          <AIConfidenceChart confidence={result.confidence} analysisType={analysisType} />
-          <DrugLikenessRadar />
-          <InteractionHeatmap />
+        <div className="space-y-6">
+          <div className="grid lg:grid-cols-2 gap-6">
+            <AIConfidenceChart confidence={result.confidence} analysisType={analysisType} />
+            <DrugLikenessRadar
+              admetData={result.admet_properties}
+              toxicityData={result.toxicity_predictions}
+            />
+            <InteractionHeatmap />
+          </div>
+          
+          {/* ML-Powered Drug Screening Panels */}
+          <div className="grid lg:grid-cols-2 gap-6">
+            <ADMETPropertiesPanel admetData={result.admet_properties} />
+            <ToxicityPredictionsPanel toxicityData={result.toxicity_predictions} />
+          </div>
         </div>
       )}
     </div>

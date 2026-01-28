@@ -16,33 +16,59 @@ interface MoleculeViewerProps {
   description?: string
 }
 
+interface Viewer3Dmol {
+  createViewer: (element: HTMLElement, options: { backgroundColor: string }) => ViewerInstance
+  SurfaceType: { VDW: unknown }
+}
+
+interface ViewerInstance {
+  addModel: (data: string, format: string) => void
+  setStyle: (selector: Record<string, never>, style: { cartoon: { color: string } }) => void
+  addSurface: (type: unknown, options: { opacity: number; color: string }) => void
+  zoomTo: () => void
+  render: () => void
+  clear: () => void
+  zoom: (factor: number) => void
+}
+
 declare global {
   interface Window {
-    $3Dmol: any
+    $3Dmol?: Viewer3Dmol
   }
 }
 
 export function MoleculeViewer({ pdbData, jobId, poseId = 0, title, description }: MoleculeViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null)
-  const viewerInstanceRef = useRef<any>(null)
+  const viewerInstanceRef = useRef<ViewerInstance | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [scriptLoaded, setScriptLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [use2DFallback, setUse2DFallback] = useState(false)
   const retryCountRef = useRef(0)
 
+  // Reset state when pdbData or poseId changes - use separate effect to avoid setState in effect
   useEffect(() => {
-    setUse2DFallback(false)
-    setError(null)
-    setIsLoading(true)
-    retryCountRef.current = 0
+    if (!pdbData) {
+      // Use setTimeout to avoid synchronous setState in effect
+      setTimeout(() => {
+        setError("No molecular structure data available")
+        setIsLoading(false)
+        setUse2DFallback(true)
+      }, 0)
+      return
+    }
+    
+    // Reset state when pdbData or poseId changes
+    setTimeout(() => {
+      setUse2DFallback(false)
+      setError(null)
+      setIsLoading(true)
+      retryCountRef.current = 0
+    }, 0)
   }, [pdbData, poseId])
 
   useEffect(() => {
     if (!pdbData) {
-      setError("No molecular structure data available")
-      setIsLoading(false)
-      setUse2DFallback(true)
       return
     }
 
@@ -56,16 +82,22 @@ export function MoleculeViewer({ pdbData, jobId, poseId = 0, title, description 
         setTimeout(() => setScriptLoaded(true), 1000)
         return
       } else {
-        setError("3D visualization library failed to load")
-        setIsLoading(false)
-        setUse2DFallback(true)
+        // Use setTimeout to avoid synchronous setState in effect
+        setTimeout(() => {
+          setError("3D visualization library failed to load")
+          setIsLoading(false)
+          setUse2DFallback(true)
+        }, 0)
         return
       }
     }
 
-    try {
+    // Use setTimeout to avoid synchronous setState in effect
+    setTimeout(() => {
       setError(null)
+    }, 0)
 
+    try {
       if (viewerInstanceRef.current) {
         try {
           viewerInstanceRef.current.clear()
@@ -85,12 +117,18 @@ export function MoleculeViewer({ pdbData, jobId, poseId = 0, title, description 
       viewer.zoomTo()
       viewer.render()
 
-      setIsLoading(false)
+      // Use setTimeout to avoid synchronous setState in effect
+      setTimeout(() => {
+        setIsLoading(false)
+      }, 0)
     } catch (error) {
       console.error("[v0] 3Dmol viewer error:", error)
-      setError("Failed to render 3D structure")
-      setIsLoading(false)
-      setUse2DFallback(true)
+      // Use setTimeout to avoid synchronous setState in effect
+      setTimeout(() => {
+        setError("Failed to render 3D structure")
+        setIsLoading(false)
+        setUse2DFallback(true)
+      }, 0)
     }
 
     return () => {

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
+import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -166,6 +167,7 @@ export function SubmitJobDialog({ open, onOpenChange, onSubmit }: SubmitJobDialo
       setLigandFile(null)
       setExhaustiveness([8])
       setNumModes([9])
+      setUseGpu(false)
       setValidationError(null)
       setFieldErrors({})
       setJobType("docking_only")
@@ -381,6 +383,30 @@ export function SubmitJobDialog({ open, onOpenChange, onSubmit }: SubmitJobDialo
                 aria-label="Number of binding modes"
               />
               <p className="text-xs text-muted-foreground">Number of binding modes to generate</p>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="flex items-center gap-2 space-y-0.5">
+                <Label htmlFor="use-gpu">GPU-accelerated docking (Gnina)</Label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" className="inline-flex">
+                      <Info className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground transition-colors" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>
+                      Use Gnina for GPU-accelerated docking when available. Requires Gnina installed and USE_GPU_DOCKING enabled on the server. Falls back to AutoDock Vina if GPU is not available.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <Switch
+                id="use-gpu"
+                checked={useGpu}
+                onCheckedChange={setUseGpu}
+                aria-label="Use GPU-accelerated docking"
+              />
             </div>
           </div>
         </div>

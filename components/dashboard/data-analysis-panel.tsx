@@ -8,17 +8,28 @@ import { TrendAnalysis } from "./trend-analysis"
 import { DataExport } from "./data-export"
 import { BarChart3 } from "lucide-react"
 
+interface DockingResult {
+  ligand_name?: string
+  modes?: Array<{
+    affinity?: number
+    rmsd_lb?: number
+    rmsd_ub?: number
+  }>
+}
+
+interface JobData {
+  jobId: string
+  jobName: string
+  createdAt?: string
+  results?: DockingResult
+  best_score?: number
+}
+
 interface DataAnalysisPanelProps {
   jobId: string
-  dockingResults: any
-  analysisResults?: any
-  allJobs?: Array<{
-    jobId: string
-    jobName: string
-    createdAt?: string
-    results?: any
-    best_score?: number
-  }>
+  dockingResults: DockingResult
+  analysisResults?: Record<string, unknown>
+  allJobs?: JobData[]
 }
 
 export function DataAnalysisPanel({

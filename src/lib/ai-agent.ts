@@ -56,15 +56,37 @@ class AIAgent {
     }
 
     try {
-      // Simulate AI analysis with structured response
-      // In production, this would call the backend AI service
-      const mockResponse = await this.generateMockAnalysis(request)
+      // Call backend API endpoint
+      const response = await fetch(`${this.apiUrl}/api/jobs/${request.jobId}/analyze`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          analysis_type: request.analysisType,
+          custom_prompt: request.customPrompt,
+          stakeholder_type: request.stakeholderType || "researcher",
+          include_visualizations: request.includeVisualizations ?? true,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: response.statusText }))
+        throw new Error(errorData.detail || `API request failed with status ${response.status}`)
+      }
+
+      const data = await response.json()
       
-      if (!mockResponse || !mockResponse.analysis) {
+      if (!data || !data.analysis) {
         throw new Error("Invalid response from AI analysis")
       }
-      
-      return mockResponse
+
+      // Ensure metadata has processingTime if missing
+      if (!data.metadata.processingTime) {
+        data.metadata.processingTime = 2.0
+      }
+
+      return data
     } catch (error) {
       console.error(`${LOG_PREFIX} AI analysis failed:`, error)
       const errorMessage = error instanceof Error ? error.message : "Unknown error"

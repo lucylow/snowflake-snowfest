@@ -36,6 +36,10 @@ ALPHAFOLD_USE_CLOUD_API=false
 OPENAI_API_KEY=your_key_here
 ANTHROPIC_API_KEY=your_key_here
 
+# Docking (optional GPU)
+USE_GPU_DOCKING=0
+GNINA_PATH=gnina
+
 # Blockchain
 SOLANA_RPC_URL=https://api.devnet.solana.com
 SOLANA_PRIVATE_KEY=your_private_key
@@ -43,6 +47,8 @@ SOLANA_PRIVATE_KEY=your_private_key
 # Frontend
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
+
+**GPU-accelerated docking:** Set `USE_GPU_DOCKING=1` and install [Gnina](https://github.com/gnina/gnina) (e.g. via Docker or system install). Set `GNINA_PATH` to the `gnina` binary path if not on `PATH`. Users can enable "Use GPU (Gnina)" in the submit dialog when the server supports it.
 
 ### 3. Download AlphaFold Databases (Optional)
 

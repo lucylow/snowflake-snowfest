@@ -13,6 +13,9 @@ services:
       - ALPHAFOLD_DATA_DIR=/data/alphafold
       - ALPHAFOLD_USE_CLOUD_API=false
       - REDIS_URL=redis://redis:6379
+      # GPU docking (optional): set USE_GPU_DOCKING=1 when Gnina is available
+      - USE_GPU_DOCKING=${USE_GPU_DOCKING:-0}
+      - GNINA_PATH=${GNINA_PATH:-gnina}
     volumes:
       - ./backend:/app
       - predictions:/workspace/predictions

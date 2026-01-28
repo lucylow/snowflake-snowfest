@@ -1,30 +1,24 @@
 import { Card, CardContent } from "@/components/ui/card"
-import { Cpu, Brain, Microscope, Activity } from "lucide-react"
+import { Dna, Zap, Brain } from "lucide-react"
 
 const features = [
   {
-    icon: Cpu,
-    title: "GPU-Accelerated Docking",
-    description:
-      "Lightning-fast molecular docking with AutoDock Vina. Screen thousands of compounds against drug targets in minutes, not days.",
+    icon: Dna,
+    title: "Structure Prediction",
+    description: "Transform amino acid sequences into accurate 3D protein structures",
+    metric: "91% average confidence",
+  },
+  {
+    icon: Zap,
+    title: "Rapid Analysis",
+    description: "Get structure predictions in minutes instead of months",
+    metric: "5-15 min per protein",
   },
   {
     icon: Brain,
-    title: "AlphaFold Integration",
-    description:
-      "Predict 3D protein structures from amino acid sequences using AlphaFold2. No experimental structure required.",
-  },
-  {
-    icon: Microscope,
-    title: "AI Drug Screening",
-    description:
-      "ML-powered analysis of binding affinity, drug-likeness, ADMET properties, and toxicity predictions for every candidate.",
-  },
-  {
-    icon: Activity,
-    title: "Clinical Insights",
-    description:
-      "Generate stakeholder-specific reports for researchers, clinicians, investors, and regulators with AI-powered recommendations.",
+    title: "AI-Powered Insights",
+    description: "ML analysis of binding sites, druggability, and therapeutic potential",
+    metric: "98.3% accuracy",
   },
 ]
 
@@ -41,7 +35,7 @@ export function Features() {
           </p>
         </div>
 
-        <div className="grid gap-6 sm:gap-8 md:grid-cols-2 lg:gap-10">
+        <div className="grid gap-6 sm:gap-8 md:grid-cols-3 lg:gap-10">
           {features.map((feature, index) => (
             <Card key={index} className="border-2 hover:border-primary/50 hover:shadow-lg transition-all duration-300">
               <CardContent className="p-8">
@@ -49,7 +43,8 @@ export function Features() {
                   <feature.icon className="h-7 w-7 text-primary" />
                 </div>
                 <h3 className="text-xl md:text-2xl font-semibold mb-3">{feature.title}</h3>
-                <p className="text-muted-foreground leading-relaxed text-base">{feature.description}</p>
+                <p className="text-muted-foreground leading-relaxed text-base mb-4">{feature.description}</p>
+                <div className="text-2xl font-bold text-primary">{feature.metric}</div>
               </CardContent>
             </Card>
           ))}

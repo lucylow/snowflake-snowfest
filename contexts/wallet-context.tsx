@@ -2,16 +2,16 @@
 
 import type React from "react"
 import { createContext, useContext, useEffect, useState, useCallback } from "react"
-import type { PublicKey } from "@solana/web3.js"
+import type { PublicKey, Transaction } from "@solana/web3.js"
 
 interface PhantomWallet {
   publicKey: PublicKey
   isConnected?: boolean
-  signTransaction: (transaction: any) => Promise<any>
-  signAllTransactions: (transactions: any[]) => Promise<any[]>
+  signTransaction: (transaction: Transaction) => Promise<Transaction>
+  signAllTransactions: (transactions: Transaction[]) => Promise<Transaction[]>
   connect: () => Promise<{ publicKey: PublicKey }>
   disconnect: () => Promise<void>
-  on?: (event: string, callback: (arg: any) => void) => void
+  on?: (event: string, callback: (arg: unknown) => void) => void
   removeAllListeners?: () => void
 }
 
@@ -38,7 +38,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return null
 
     try {
-      const { solana } = window as any
+      const { solana } = window as { solana?: PhantomWallet }
       if (solana?.isPhantom) {
         return solana
       }
@@ -64,7 +64,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setWallet(phantomWallet)
       setPublicKey(response.publicKey)
       setConnected(true)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.info("[v0] Wallet connection optional:", err.message)
       setError(err.message || "Wallet connection optional")
       setConnected(false)
@@ -83,7 +83,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setPublicKey(null)
       setConnected(false)
       setError(null)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn("[v0] Disconnect failed:", err)
     }
   }, [wallet])

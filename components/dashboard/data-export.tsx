@@ -6,10 +6,25 @@ import { Button } from "@/components/ui/button"
 import { Download, FileText, FileJson, FileSpreadsheet } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
+interface DockingMode {
+  affinity?: number
+  rmsd_lb?: number
+  rmsd_ub?: number
+}
+
+interface DockingResult {
+  ligand_name?: string
+  modes?: DockingMode[]
+  results?: Array<{
+    ligand_name?: string
+    modes?: DockingMode[]
+  }>
+}
+
 interface DataExportProps {
   jobId: string
-  dockingResults: any
-  analysisResults?: any
+  dockingResults: DockingResult
+  analysisResults?: Record<string, unknown>
 }
 
 export function DataExport({ jobId, dockingResults, analysisResults }: DataExportProps) {
@@ -42,9 +57,9 @@ export function DataExport({ jobId, dockingResults, analysisResults }: DataExpor
         // Extract binding affinities
         const affinities: Array<{ ligand: string; pose: number; affinity: number; rmsd_lb?: number; rmsd_ub?: number }> = []
 
-        dockingResults.results?.forEach((result: any) => {
+        dockingResults.results?.forEach((result: DockingResult) => {
           const modes = result.modes || []
-          modes.forEach((mode: any, idx: number) => {
+          modes.forEach((mode: DockingMode, idx: number) => {
             if (mode.affinity !== undefined) {
               affinities.push({
                 ligand: result.ligand_name || "unknown",
@@ -115,7 +130,7 @@ export function DataExport({ jobId, dockingResults, analysisResults }: DataExpor
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <label className="text-sm font-medium">Export Format</label>
-          <Select value={exportFormat} onValueChange={(value: any) => setExportFormat(value)}>
+          <Select value={exportFormat} onValueChange={(value: "json" | "csv" | "tsv") => setExportFormat(value)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>

@@ -13,12 +13,11 @@ export function Hero() {
         </div>
 
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl mb-6 sm:mb-8 text-balance leading-tight">
-          Accelerate Drug Discovery with AI-Powered Molecular Docking
+          From Sequence to Therapeutic Candidate
         </h1>
 
         <p className="mx-auto max-w-2xl text-base text-muted-foreground sm:text-lg md:text-xl mb-10 sm:mb-12 text-pretty leading-relaxed">
-          Transform protein sequences into drug candidates using AlphaFold structure prediction, GPU-accelerated
-          docking, and AI analysis. From sequence to insight in minutes.
+          Leverage state-of-the-art AI to predict protein structures with atomic accuracy, then screen thousands of compounds to discover novel therapeutics for human health.
         </p>
 
         <div className="flex flex-col gap-4 justify-center items-center mb-8 sm:flex-row">

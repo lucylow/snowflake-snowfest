@@ -7,6 +7,7 @@ from datetime import datetime
 class JobType(str, enum.Enum):
     DOCKING_ONLY = "docking_only"
     SEQUENCE_TO_DOCKING = "sequence_to_docking"
+    ALPHAFOLD_ONLY = "alphafold_only"  # Structure prediction only, no docking
 
 class JobStatus(str, enum.Enum):
     SUBMITTED = "submitted"
@@ -32,6 +33,7 @@ class Job(Base):
     protein_sequence = Column(Text, nullable=True)
     predicted_pdb_path = Column(String, nullable=True)
     plddt_score = Column(Float, nullable=True)  # AlphaFold confidence score
+    quality_metrics = Column(JSON, nullable=True)  # Comprehensive quality metrics (pLDDT, PAE, etc.)
     
     # Ligand information
     ligand_files = Column(JSON, nullable=True)
@@ -51,6 +53,8 @@ class Job(Base):
     
     # Metadata
     error_message = Column(Text, nullable=True)
+    progress = Column(Float, nullable=True, default=0.0)  # Progress percentage (0-100)
+    progress_message = Column(String, nullable=True)  # Human-readable progress message
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True, index=True)

@@ -20,7 +20,7 @@ export interface DockingParameters {
   flexible_sidechains?: boolean
   flexible_residues?: string[]
   scoring_function?: string
-  custom_config?: Record<string, any>
+  custom_config?: Record<string, unknown>
 }
 
 export interface Pose {
@@ -54,7 +54,33 @@ export interface DockingResult {
   output_directory: string
   raw_results_path: string
   analysis_plots: Record<string, string>
-  ai_analysis?: any
+  ai_analysis?: Record<string, unknown>
+}
+
+export interface QualityMetrics {
+  plddt_score: number
+  pae_score?: number | null
+  per_residue_plddt: number[]
+  confidence_regions: {
+    very_high: number  // pLDDT >= 90
+    confident: number  // 70 <= pLDDT < 90
+    low: number  // 50 <= pLDDT < 70
+    very_low: number  // pLDDT < 50
+  }
+  structure_length: number
+}
+
+export interface AlphaFoldConfig {
+  model_preset?: "monomer" | "monomer_ptm" | "multimer" | "multimer_v2"
+  max_template_date?: string
+  db_preset?: "reduced_dbs" | "full_dbs"
+  use_gpu_relax?: boolean
+}
+
+export interface AlphaFoldPredictionRequest {
+  job_name: string
+  protein_sequence: string
+  alphafold_config?: AlphaFoldConfig
 }
 
 export interface JobStatus {
@@ -75,6 +101,7 @@ export interface JobStatus {
   protein_sequence?: string
   predicted_pdb_path?: string
   plddt_score?: number
+  quality_metrics?: QualityMetrics
   top_binding_score?: number
   ai_report_content?: string
   blockchain_tx_hash?: string
@@ -192,6 +219,42 @@ class APIClient {
 
       return this.handleResponse(response, "Job submission")
     } catch (error) {
+      console.error(`${LOG_PREFIX} Error submitting sequence docking job:`, error)
+      throw error
+    }
+  }
+
+  /**
+   * Submit an AlphaFold-only structure prediction job (no docking)
+   */
+  async submitAlphaFoldPrediction(
+    request: AlphaFoldPredictionRequest,
+  ): Promise<{ id: string; status: string; job_name: string }> {
+    if (!request.protein_sequence || !request.protein_sequence.trim()) {
+      throw new APIError("Protein sequence is required", 400, "VALIDATION_ERROR")
+    }
+
+    try {
+      const response = await fetchWithTimeout(`${this.baseUrl}/api/alphafold/predict`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+      })
+
+      const result = await this.handleResponse(response, "AlphaFold prediction submission")
+      return {
+        id: result.id,
+        status: result.status,
+        job_name: result.job_name,
+      }
+    } catch (error) {
+      console.error(`${LOG_PREFIX} Error submitting AlphaFold prediction:`, error)
+      throw error
+    }
+  }
+    } catch (error) {
       if (error instanceof APIError) throw error
       throw new APIError("Network error - unable to connect to server", 0, "NETWORK_ERROR")
     }
@@ -292,7 +355,7 @@ class APIClient {
   }
 
   // Generate report
-  async generateReport(request: ReportRequest): Promise<any> {
+  async generateReport(request: ReportRequest): Promise<Record<string, unknown>> {
     if (!request.job_id) {
       throw new APIError("Job ID is required for report generation", 400, "VALIDATION_ERROR")
     }
@@ -318,7 +381,7 @@ class APIClient {
   }
 
   // Get visualization
-  async getVisualization(jobId: string, poseId = 0): Promise<any> {
+  async getVisualization(jobId: string, poseId = 0): Promise<Record<string, unknown>> {
     if (!jobId) {
       throw new APIError("Job ID is required", 400, "VALIDATION_ERROR")
     }
@@ -380,8 +443,8 @@ class APIClient {
     apiName: string,
     endpoint: string,
     method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
-    params?: Record<string, any>,
-    jsonData?: Record<string, any>,
+    params?: Record<string, unknown>,
+    jsonData?: Record<string, unknown>,
     headers?: Record<string, string>,
     apiKey?: string,
     baseUrl?: string,
@@ -425,7 +488,7 @@ class APIClient {
   ): Promise<any> {
     try {
       const queryString = params
-        ? `?${new URLSearchParams(params as any).toString()}`
+        ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
         : ""
       const response = await fetchWithTimeout(
         `${this.baseUrl}/api/external/pubchem/${endpoint}${queryString}`,
@@ -443,7 +506,7 @@ class APIClient {
   ): Promise<any> {
     try {
       const queryString = params
-        ? `?${new URLSearchParams(params as any).toString()}`
+        ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
         : ""
       const response = await fetchWithTimeout(
         `${this.baseUrl}/api/external/chembl/${endpoint}${queryString}`,
@@ -461,7 +524,7 @@ class APIClient {
   ): Promise<any> {
     try {
       const queryString = params
-        ? `?${new URLSearchParams(params as any).toString()}`
+        ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
         : ""
       const response = await fetchWithTimeout(
         `${this.baseUrl}/api/external/uniprot/${endpoint}${queryString}`,
@@ -479,7 +542,7 @@ class APIClient {
   ): Promise<any> {
     try {
       const queryString = params
-        ? `?${new URLSearchParams(params as any).toString()}`
+        ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
         : ""
       const response = await fetchWithTimeout(
         `${this.baseUrl}/api/external/pdb/${endpoint}${queryString}`,

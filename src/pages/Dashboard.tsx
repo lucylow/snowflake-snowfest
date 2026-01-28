@@ -1,6 +1,5 @@
-"use client"
-
 import { useState, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 import { Header } from "@/components/landing/header"
 import { Footer } from "@/components/landing/footer"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,13 +10,12 @@ import { apiClient, APIError, type DockingParameters, type JobStatus } from "@/l
 import { DockingJobCard } from "@/components/dashboard/docking-job-card"
 import { SubmitJobDialog } from "@/components/dashboard/submit-job-dialog"
 import { ErrorAlert } from "@/components/ui/error-alert"
-import { useRouter } from "next/navigation"
 import { useWallet } from "@/contexts/wallet-context"
 import { Badge } from "@/components/ui/badge"
 import { solanaClient } from "@/lib/solana-client"
 
-export default function DashboardPage() {
-  const router = useRouter()
+export default function Dashboard() {
+  const navigate = useNavigate()
   const { connected, publicKey, connect } = useWallet()
   const [jobs, setJobs] = useState<JobStatus[]>(allMockJobs)
   const [isSubmitDialogOpen, setIsSubmitDialogOpen] = useState(false)
@@ -223,7 +221,7 @@ export default function DashboardPage() {
 
   const handleViewResults = (jobId: string) => {
     try {
-      router.push(`/results/${jobId}`)
+      navigate(`/results/${jobId}`)
     } catch (error) {
       console.error("[v0] Navigation error:", error)
       setError("Unable to navigate to results page")
