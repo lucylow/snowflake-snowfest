@@ -56,11 +56,11 @@ export default function Blockchain() {
   useEffect(() => {
     const fetchCost = async () => {
       try {
-        const sdk = solanaClient.getNeuravivaSDK()
+        const sdk = solanaClient.getSnowflakeSDK()
         const cost = await sdk.estimateTransactionCost()
         setEstimatedCost(cost)
       } catch (error) {
-        console.error("[v0] Failed to estimate cost:", error)
+        console.error("[SNOWFLAKE] Failed to estimate cost:", error)
       }
     }
 
@@ -498,7 +498,7 @@ export default function Blockchain() {
                       <h3 className="font-semibold mb-1">Report Generation</h3>
                       <p className="text-sm text-muted-foreground">
                         When you generate a molecular docking report, a cryptographic SHA-256 hash is created from the
-                        report content using our Neuraviva SDK.
+                        report content using our SNOWFLAKE SDK.
                       </p>
                     </div>
                   </div>

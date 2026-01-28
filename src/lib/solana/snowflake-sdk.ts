@@ -1,6 +1,8 @@
 import { type Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js"
 import { sha256 } from "js-sha256"
 
+const LOG_PREFIX = "[SNOWFLAKE]"
+
 export interface ReportData {
   jobId: string
   reportHash: string
@@ -30,7 +32,7 @@ export interface TransactionResult {
   explorerUrl?: string
 }
 
-export class NeuravivaSDK {
+export class SnowflakeSDK {
   private connection: Connection
   private programId: PublicKey
   private network: string
@@ -122,7 +124,7 @@ export class NeuravivaSDK {
         explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=${this.network}`,
       }
     } catch (error: any) {
-      console.error("[v0] Failed to initialize storage:", error)
+      console.error(`${LOG_PREFIX} Failed to initialize storage:`, error)
       return {
         success: false,
         transactionHash: "",
@@ -172,7 +174,7 @@ export class NeuravivaSDK {
         contentLength: typeof reportContent === "string" ? reportContent.length : reportContent.byteLength,
         generatedAt: new Date().toISOString(),
         version: "1.0",
-        sdk: "neuraviva-sdk",
+        sdk: "snowflake-sdk",
       }
 
       const metadataString = JSON.stringify(enhancedMetadata)
@@ -238,7 +240,7 @@ export class NeuravivaSDK {
         explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=${this.network}`,
       }
     } catch (error: any) {
-      console.error("[v0] Failed to store report hash:", error)
+      console.error(`${LOG_PREFIX} Failed to store report hash:`, error)
       return {
         success: false,
         transactionHash: "",
@@ -301,7 +303,7 @@ export class NeuravivaSDK {
         explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=${this.network}`,
       }
     } catch (error: any) {
-      console.error("[v0] Failed to verify report:", error)
+      console.error(`${LOG_PREFIX} Failed to verify report:`, error)
       return {
         success: false,
         transactionHash: "",
@@ -348,7 +350,7 @@ export class NeuravivaSDK {
         transactionHash: signature,
       }
     } catch (error) {
-      console.error("[v0] Failed to get report:", error)
+      console.error(`${LOG_PREFIX} Failed to get report:`, error)
       return null
     }
   }
@@ -361,7 +363,7 @@ export class NeuravivaSDK {
       })
       return transaction !== null
     } catch (error) {
-      console.error("[v0] Failed to verify transaction:", error)
+      console.error(`${LOG_PREFIX} Failed to verify transaction:`, error)
       return false
     }
   }
@@ -384,7 +386,7 @@ export class NeuravivaSDK {
         updatedAt: Date.now(),
       }
     } catch (error) {
-      console.error("[v0] Failed to get storage stats:", error)
+      console.error(`${LOG_PREFIX} Failed to get storage stats:`, error)
       return null
     }
   }
@@ -396,7 +398,7 @@ export class NeuravivaSDK {
       // Approximate fee in SOL (typically 5000 lamports = 0.000005 SOL)
       return 5000 / LAMPORTS_PER_SOL
     } catch (error) {
-      console.error("[v0] Failed to estimate cost:", error)
+      console.error(`${LOG_PREFIX} Failed to estimate cost:`, error)
       return 0.000005 // Default estimate
     }
   }

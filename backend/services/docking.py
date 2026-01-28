@@ -69,16 +69,17 @@ class GninaExecutionError(DockingError):
     pass
 
 
-def _gnina_available() -> bool:
+async def _gnina_available() -> bool:
     """Check if Gnina executable is available for GPU-accelerated docking."""
     try:
-        subprocess.run(
-            [GNINA_PATH, "--version"],
-            capture_output=True,
-            timeout=5,
+        process = await asyncio.create_subprocess_exec(
+            GNINA_PATH, "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
-        return True
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        await asyncio.wait_for(process.communicate(), timeout=GNINA_VERSION_CHECK_TIMEOUT)
+        return process.returncode == 0
+    except (FileNotFoundError, asyncio.TimeoutExpired, OSError):
         return False
 
 async def run_autodock_vina(
@@ -116,7 +117,7 @@ async def run_autodock_vina(
     # Validate and normalize parameters
     parameters = validate_and_normalize_parameters(parameters)
     
-    output_dir = Path(f"/workspace/predictions/{job_id}/docking")
+    output_dir = settings.PREDICTIONS_DIR / job_id / "docking"
     
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -153,7 +154,7 @@ async def run_autodock_vina(
     valid_results.sort(key=lambda x: x["binding_affinity"])
     
     # Calculate comprehensive statistics
-    statistics = calculate_docking_statistics(valid_results)
+    docking_stats = calculate_docking_statistics(valid_results)
     
     # Perform pose clustering for top results
     clustered_results = perform_pose_clustering(valid_results)
@@ -165,7 +166,7 @@ async def run_autodock_vina(
         "results": all_results,
         "best_score": valid_results[0]["binding_affinity"] if valid_results else None,
         "best_ligand": valid_results[0]["ligand_name"] if valid_results else None,
-        "statistics": statistics,
+        "statistics": docking_stats,
         "clustered_results": clustered_results,
         "parameters_used": parameters
     }
@@ -515,11 +516,18 @@ def calculate_docking_statistics(results: List[Dict[str, Any]]) -> Dict[str, Any
     q3 = statistics.median(sorted_affinities[(n+1)//2:]) if n > 1 else sorted_affinities[-1]
     iqr = q3 - q1
     
-    # Additional percentiles
-    p25 = sorted_affinities[int(n * 0.25)] if n > 0 else sorted_affinities[0]
-    p75 = sorted_affinities[int(n * 0.75)] if n > 0 else sorted_affinities[-1]
-    p90 = sorted_affinities[int(n * 0.90)] if n > 0 else sorted_affinities[-1]
-    p10 = sorted_affinities[int(n * 0.10)] if n > 0 else sorted_affinities[0]
+    # Additional percentiles (with bounds checking)
+    if n > 0:
+        p25_idx = min(int(n * 0.25), n - 1)
+        p75_idx = min(int(n * 0.75), n - 1)
+        p90_idx = min(int(n * 0.90), n - 1)
+        p10_idx = min(int(n * 0.10), n - 1)
+        p25 = sorted_affinities[p25_idx]
+        p75 = sorted_affinities[p75_idx]
+        p90 = sorted_affinities[p90_idx]
+        p10 = sorted_affinities[p10_idx]
+    else:
+        p25 = p75 = p90 = p10 = 0.0
     
     # Skewness (measure of asymmetry)
     if n > 2 and std_affinity > 0:
@@ -545,6 +553,7 @@ def calculate_docking_statistics(results: List[Dict[str, Any]]) -> Dict[str, Any
         ci_lower = mean_affinity - margin_error
         ci_upper = mean_affinity + margin_error
     else:
+        margin_error = 0.0
         ci_lower = mean_affinity
         ci_upper = mean_affinity
     
@@ -589,7 +598,7 @@ def calculate_docking_statistics(results: List[Dict[str, Any]]) -> Dict[str, Any
         
         # Central tendency
         "median_score": median_score,
-        "mode_score": statistics.mode(affinities) if len(set(affinities)) < len(affinities) else None,
+        "mode_score": statistics.mode(affinities) if len(set(affinities)) < len(affinities) and len(affinities) > 0 else None,
         
         # Percentiles
         "percentile_10": p10,
@@ -606,7 +615,7 @@ def calculate_docking_statistics(results: List[Dict[str, Any]]) -> Dict[str, Any
         # Confidence intervals
         "confidence_interval_95_lower": ci_lower,
         "confidence_interval_95_upper": ci_upper,
-        "margin_of_error": margin_error if n > 1 else 0.0,
+        "margin_of_error": margin_error,
         
         # Outlier analysis
         "num_outliers": len(outliers),

@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, AsyncGenerator, Tuple
 import httpx
 import json
 from datetime import datetime
@@ -60,6 +60,9 @@ COST_PER_1K_TOKENS = {
 
 # Track API usage
 _api_usage_stats: Dict[str, Dict[str, Any]] = {}
+
+# Conversation history storage (in-memory, can be replaced with Redis in production)
+_conversation_history: Dict[str, List[Dict[str, str]]] = {}
 
 async def generate_ai_report(
     job_id: str,
@@ -647,7 +650,31 @@ Your analysis should be comprehensive and include:
    - Optimization strategies with specific molecular modifications
    - Next steps in the drug discovery pipeline
 
-Use technical language appropriate for researchers. Cite specific metrics, provide quantitative assessments, and include detailed methodology recommendations.""",
+Use technical language appropriate for researchers. Cite specific metrics, provide quantitative assessments, and include detailed methodology recommendations.
+
+**Example Analysis Format:**
+{
+    "summary": "The docking analysis reveals Ligand A (binding affinity: -8.7 kcal/mol) as the top candidate with strong binding interactions. Statistical analysis shows mean affinity of -7.2 ± 1.3 kcal/mol across 15 ligands, with 8 poses clustering within 1.2 Å RMSD, indicating high confidence.",
+    "detailed_analysis": {
+        "binding_analysis": "Ligand A demonstrates exceptional binding affinity (-8.7 kcal/mol), corresponding to predicted Ki ≈ 420 nM. The binding mode shows 6 hydrogen bonds with key residues (Asp123, Lys456, Ser789) and optimal shape complementarity (SAS = 0.92).",
+        "interaction_analysis": "Critical interactions include: (1) π-π stacking with Phe234 (distance: 3.8 Å), (2) Salt bridge with Lys456 (distance: 2.9 Å), (3) Hydrophobic pocket occupancy (85% volume).",
+        "pose_quality": "Pose clustering analysis reveals 8/10 poses within 1.2 Å RMSD, indicating high reproducibility. The binding mode is consistent across multiple docking runs.",
+        "drug_likeness": "Ligand A satisfies Lipinski's Rule of Five (MW: 412 Da, LogP: 3.1, HBD: 2, HBA: 6). QED score: 0.68, suggesting good drug-likeness. Synthetic accessibility score: 4.2/10 (moderately accessible).",
+        "clinical_insights": "The strong binding affinity suggests potential for nanomolar IC50 in cellular assays. Recommended next steps: (1) SPR binding assay to validate Ki prediction, (2) 100 ns MD simulation to assess binding stability, (3) Analog synthesis focusing on improving LogP while maintaining H-bond network."
+    },
+    "recommendations": [
+        "Perform SPR binding assay to validate predicted Ki of 420 nM",
+        "Run 100 ns molecular dynamics simulation to assess binding stability",
+        "Synthesize 5-10 analogs with modified LogP (target: 2.5-3.5) while preserving key H-bonds",
+        "Conduct FEP calculations for top 3 analogs to predict affinity improvements"
+    ],
+    "confidence": 0.87,
+    "limitations": [
+        "Docking scores are approximations; experimental validation required",
+        "MD simulations needed to confirm binding stability",
+        "ADMET predictions are computational estimates"
+    ]
+}""",
             
             "recommendations_focus": "Focus on experimental validation, computational follow-ups, SAR analysis, and optimization strategies."
         },
@@ -684,7 +711,10 @@ Your analysis should emphasize clinical relevance and include:
    - Clinical trial endpoints and success criteria
    - Comparison with standard of care
 
-Use clear, clinically-focused language. Translate technical metrics into clinical implications. Focus on patient safety and therapeutic efficacy.""",
+Use clear, clinically-focused language. Translate technical metrics into clinical implications. Focus on patient safety and therapeutic efficacy.
+
+**Example Clinical Translation:**
+Binding affinity of -8.7 kcal/mol translates to predicted IC50 ≈ 420 nM, suggesting therapeutic potential at achievable plasma concentrations. For a typical oral dosing regimen targeting 10-50 nM free plasma concentration, this compound would require BID or TID dosing. The predicted CYP3A4 inhibition risk (moderate) suggests monitoring for drug-drug interactions with statins, calcium channel blockers, and immunosuppressants.""",
             
             "recommendations_focus": "Focus on clinical application, patient safety, dosing strategies, and therapeutic potential."
         },
@@ -1386,3 +1416,494 @@ def _extract_recommendations_from_text(text: str, stakeholder_type: str) -> List
     
     # Fallback to default recommendations
     return _get_default_recommendations(stakeholder_type)
+
+# ============================================================================
+# STREAMING SUPPORT
+# ============================================================================
+
+async def generate_ai_analysis_stream(
+    job_id: str,
+    sequence: Optional[str],
+    plddt_score: Optional[float],
+    docking_results: Dict[str, Any],
+    analysis_type: str = "comprehensive",
+    custom_prompt: Optional[str] = None,
+    stakeholder_type: str = "researcher"
+) -> AsyncGenerator[str, None]:
+    """
+    Generate AI analysis with streaming support for real-time updates
+    
+    Args:
+        job_id: Unique job identifier
+        sequence: Protein sequence (if AlphaFold was used)
+        plddt_score: AlphaFold confidence score
+        docking_results: Docking simulation results
+        analysis_type: Type of analysis
+        custom_prompt: Custom prompt for analysis
+        stakeholder_type: Target audience
+        
+    Yields:
+        Chunks of analysis text as they are generated
+    """
+    # Build context (same as generate_structured_ai_analysis)
+    context = _build_analysis_context(job_id, sequence, plddt_score, docking_results, analysis_type, custom_prompt)
+    
+    # Get stakeholder-specific prompt
+    stakeholder_prompts = _get_stakeholder_specific_prompt(stakeholder_type, analysis_type)
+    system_prompt = stakeholder_prompts["system"]
+    
+    # Add JSON format instruction
+    context += f"""
+    
+### Recommendations Focus:
+{stakeholder_prompts['recommendations_focus']}
+
+Please provide your analysis in JSON format with the following structure:
+{{
+    "summary": "Executive summary tailored for {stakeholder_type}",
+    "detailed_analysis": {{
+        "binding_analysis": "Detailed binding affinity analysis",
+        "interaction_analysis": "Detailed interaction analysis",
+        "pose_quality": "Pose quality assessment",
+        "drug_likeness": "Drug-likeness assessment",
+        "clinical_insights": "Clinical insights specific to {stakeholder_type}"
+    }},
+    "recommendations": ["Recommendation 1", "Recommendation 2", ...],
+    "confidence": 0.0-1.0,
+    "limitations": ["Limitation 1", "Limitation 2", ...]
+}}
+"""
+    
+    # Stream from preferred provider
+    try:
+        if ANTHROPIC_API_KEY:
+            async for chunk in _stream_with_anthropic(context, system_prompt):
+                yield chunk
+        elif OPENAI_API_KEY:
+            async for chunk in _stream_with_openai(context, system_prompt):
+                yield chunk
+        else:
+            # Fallback to non-streaming
+            template_result = generate_template_structured_analysis(
+                context, docking_results, plddt_score, stakeholder_type
+            )
+            yield json.dumps(template_result)
+    except Exception as e:
+        logger.error(f"Error in streaming analysis: {str(e)}", exc_info=True)
+        yield json.dumps({"error": f"Streaming failed: {str(e)}"})
+
+async def _stream_with_anthropic(context: str, system_prompt: str) -> AsyncGenerator[str, None]:
+    """Stream analysis using Anthropic Claude API"""
+    if not ANTHROPIC_API_KEY:
+        raise AIAPIError("ANTHROPIC_API_KEY not configured")
+    
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        try:
+            async with client.stream(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-3-7-sonnet-20250219",
+                    "max_tokens": 4096,
+                    "system": system_prompt,
+                    "messages": [{"role": "user", "content": context}],
+                    "temperature": 0.3,
+                    "stream": True
+                }
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    raise AIAPIError(f"Anthropic API error (status {response.status_code}): {error_text.decode()[:500]}")
+                
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    if line.startswith("data: "):
+                        data = line[6:]  # Remove "data: " prefix
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk_data = json.loads(data)
+                            if "delta" in chunk_data and "text" in chunk_data["delta"]:
+                                yield chunk_data["delta"]["text"]
+                        except json.JSONDecodeError:
+                            continue
+        except httpx.TimeoutException:
+            raise AIReportTimeoutError("Anthropic API request timed out")
+        except Exception as e:
+            raise AIAPIError(f"Error streaming from Anthropic: {str(e)}")
+
+async def _stream_with_openai(context: str, system_prompt: str) -> AsyncGenerator[str, None]:
+    """Stream analysis using OpenAI GPT-4 API"""
+    if not OPENAI_API_KEY:
+        raise AIAPIError("OPENAI_API_KEY not configured")
+    
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        try:
+            async with client.stream(
+                "POST",
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "gpt-4o",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": context}
+                    ],
+                    "max_tokens": 4096,
+                    "temperature": 0.3,
+                    "stream": True,
+                    "response_format": {"type": "json_object"}
+                }
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    raise AIAPIError(f"OpenAI API error (status {response.status_code}): {error_text.decode()[:500]}")
+                
+                async for line in response.aiter_lines():
+                    if not line.strip() or not line.startswith("data: "):
+                        continue
+                    data = line[6:]  # Remove "data: " prefix
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk_data = json.loads(data)
+                        if "choices" in chunk_data and len(chunk_data["choices"]) > 0:
+                            delta = chunk_data["choices"][0].get("delta", {})
+                            if "content" in delta:
+                                yield delta["content"]
+                    except json.JSONDecodeError:
+                        continue
+        except httpx.TimeoutException:
+            raise AIReportTimeoutError("OpenAI API request timed out")
+        except Exception as e:
+            raise AIAPIError(f"Error streaming from OpenAI: {str(e)}")
+
+# ============================================================================
+# CONVERSATION INTERFACE
+# ============================================================================
+
+def get_conversation_history(job_id: str) -> List[Dict[str, str]]:
+    """Get conversation history for a job"""
+    return _conversation_history.get(job_id, [])
+
+def add_to_conversation_history(job_id: str, role: str, content: str):
+    """Add a message to conversation history"""
+    if job_id not in _conversation_history:
+        _conversation_history[job_id] = []
+    _conversation_history[job_id].append({"role": role, "content": content})
+    # Limit history to last 20 messages
+    if len(_conversation_history[job_id]) > 20:
+        _conversation_history[job_id] = _conversation_history[job_id][-20:]
+
+async def generate_followup_response(
+    job_id: str,
+    question: str,
+    docking_results: Dict[str, Any],
+    stakeholder_type: str = "researcher"
+) -> Dict[str, Any]:
+    """
+    Generate a follow-up response to a question about the docking results
+    
+    Args:
+        job_id: Unique job identifier
+        question: User's follow-up question
+        docking_results: Docking simulation results
+        stakeholder_type: Target audience
+        
+    Returns:
+        Response dictionary with answer and metadata
+    """
+    if not question or not question.strip():
+        raise ValueError("Question is required")
+    
+    # Get conversation history
+    history = get_conversation_history(job_id)
+    
+    # Build context with conversation history
+    context = f"""
+# Follow-up Question about Docking Results
+Job ID: {job_id}
+
+## Previous Context:
+{json.dumps(docking_results.get('summary', {}), indent=2)}
+
+## Conversation History:
+"""
+    for msg in history[-5:]:  # Last 5 messages for context
+        context += f"\n{msg['role'].upper()}: {msg['content']}\n"
+    
+    context += f"""
+## Current Question:
+{question}
+
+Please provide a detailed, context-aware answer to this question based on the docking results and previous conversation.
+"""
+    
+    system_prompt = f"""You are an expert computational chemist helping a {stakeholder_type} understand molecular docking results.
+Answer the follow-up question based on the provided context and conversation history. Be specific, cite metrics, and provide actionable insights."""
+    
+    try:
+        if ANTHROPIC_API_KEY:
+            answer = await generate_with_anthropic(context, stakeholder_type)
+        elif OPENAI_API_KEY:
+            answer = await generate_with_openai(context, stakeholder_type)
+        else:
+            answer = "Follow-up questions require AI API keys to be configured."
+        
+        # Add to conversation history
+        add_to_conversation_history(job_id, "user", question)
+        add_to_conversation_history(job_id, "assistant", answer)
+        
+        return {
+            "answer": answer,
+            "metadata": {
+                "model": "claude-3-7-sonnet-20250219" if ANTHROPIC_API_KEY else ("gpt-4o" if OPENAI_API_KEY else "template"),
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error generating follow-up response: {str(e)}", exc_info=True)
+        raise AIReportError(f"Failed to generate follow-up response: {str(e)}")
+
+# ============================================================================
+# MULTI-MODEL ENSEMBLE
+# ============================================================================
+
+async def generate_ensemble_analysis(
+    job_id: str,
+    sequence: Optional[str],
+    plddt_score: Optional[float],
+    docking_results: Dict[str, Any],
+    analysis_type: str = "comprehensive",
+    stakeholder_type: str = "researcher"
+) -> Dict[str, Any]:
+    """
+    Generate analysis using multiple AI models and combine insights
+    
+    Args:
+        job_id: Unique job identifier
+        sequence: Protein sequence
+        plddt_score: AlphaFold confidence score
+        docking_results: Docking simulation results
+        analysis_type: Type of analysis
+        stakeholder_type: Target audience
+        
+    Returns:
+        Combined analysis with insights from multiple models
+    """
+    context = _build_analysis_context(job_id, sequence, plddt_score, docking_results, analysis_type, None)
+    stakeholder_prompts = _get_stakeholder_specific_prompt(stakeholder_type, analysis_type)
+    system_prompt = stakeholder_prompts["system"]
+    
+    results = []
+    
+    # Generate with Anthropic if available
+    if ANTHROPIC_API_KEY:
+        try:
+            anthropic_result = await generate_structured_with_anthropic(context, system_prompt, stakeholder_type)
+            results.append({
+                "provider": "anthropic",
+                "model": "claude-3-7-sonnet-20250219",
+                "analysis": anthropic_result
+            })
+        except Exception as e:
+            logger.warning(f"Anthropic ensemble analysis failed: {str(e)}")
+    
+    # Generate with OpenAI if available
+    if OPENAI_API_KEY:
+        try:
+            openai_result = await generate_structured_with_openai(context, system_prompt, stakeholder_type)
+            results.append({
+                "provider": "openai",
+                "model": "gpt-4o",
+                "analysis": openai_result
+            })
+        except Exception as e:
+            logger.warning(f"OpenAI ensemble analysis failed: {str(e)}")
+    
+    if not results:
+        # Fallback to template
+        template_result = generate_template_structured_analysis(context, docking_results, plddt_score, stakeholder_type)
+        return {
+            "analysis": template_result,
+            "ensemble": False,
+            "models_used": []
+        }
+    
+    # Combine results
+    combined_analysis = _combine_ensemble_results(results, stakeholder_type)
+    
+    return {
+        "analysis": combined_analysis,
+        "ensemble": len(results) > 1,
+        "models_used": [r["provider"] for r in results],
+        "individual_results": results
+    }
+
+def _combine_ensemble_results(results: List[Dict[str, Any]], stakeholder_type: str) -> Dict[str, Any]:
+    """Combine results from multiple models"""
+    if len(results) == 1:
+        # Single result, parse and return
+        try:
+            analysis_text = results[0]["analysis"]
+            import re
+            json_match = re.search(r'```(?:json)?\s*(\{.*\})\s*```', analysis_text, re.DOTALL)
+            if json_match:
+                analysis_text = json_match.group(1)
+            return json.loads(analysis_text)
+        except:
+            return {"summary": analysis_text, "detailed_analysis": {}, "recommendations": []}
+    
+    # Multiple results - combine intelligently
+    summaries = []
+    all_recommendations = []
+    detailed_analyses = []
+    
+    for result in results:
+        try:
+            analysis_text = result["analysis"]
+            import re
+            json_match = re.search(r'```(?:json)?\s*(\{.*\})\s*```', analysis_text, re.DOTALL)
+            if json_match:
+                analysis_text = json_match.group(1)
+            parsed = json.loads(analysis_text)
+            summaries.append(parsed.get("summary", ""))
+            all_recommendations.extend(parsed.get("recommendations", []))
+            detailed_analyses.append(parsed.get("detailed_analysis", {}))
+        except:
+            summaries.append(analysis_text[:200] if isinstance(analysis_text, str) else "")
+    
+    # Combine summaries
+    combined_summary = f"Ensemble analysis combining insights from {len(results)} AI models:\n\n"
+    for i, summary in enumerate(summaries, 1):
+        combined_summary += f"Model {i}: {summary[:300]}...\n\n"
+    
+    # Deduplicate and prioritize recommendations
+    unique_recommendations = []
+    seen = set()
+    for rec in all_recommendations:
+        rec_lower = rec.lower().strip()
+        if rec_lower not in seen:
+            seen.add(rec_lower)
+            unique_recommendations.append(rec)
+    
+    # Average confidence if available
+    confidences = []
+    for result in results:
+        try:
+            analysis_text = result["analysis"]
+            import re
+            json_match = re.search(r'```(?:json)?\s*(\{.*\})\s*```', analysis_text, re.DOTALL)
+            if json_match:
+                analysis_text = json_match.group(1)
+            parsed = json.loads(analysis_text)
+            if "confidence" in parsed:
+                confidences.append(parsed["confidence"])
+        except:
+            pass
+    
+    avg_confidence = sum(confidences) / len(confidences) if confidences else 0.75
+    
+    return {
+        "summary": combined_summary,
+        "detailed_analysis": {
+            "ensemble_insights": "This analysis combines insights from multiple AI models for enhanced reliability and comprehensive coverage.",
+            "model_agreement": f"{len(results)} models analyzed the docking results",
+            "consensus_recommendations": unique_recommendations[:10]  # Top 10 unique recommendations
+        },
+        "recommendations": unique_recommendations[:10],
+        "confidence": avg_confidence,
+        "limitations": [
+            "Ensemble analysis combines multiple models but may have varying perspectives",
+            "Analysis based on computational predictions only",
+            "Experimental validation required"
+        ]
+    }
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def _build_analysis_context(
+    job_id: str,
+    sequence: Optional[str],
+    plddt_score: Optional[float],
+    docking_results: Dict[str, Any],
+    analysis_type: str,
+    custom_prompt: Optional[str]
+) -> str:
+    """Build analysis context string (extracted for reuse)"""
+    context = f"""
+# Protein-Ligand Docking Analysis Report
+Job ID: {job_id}
+
+## Protein Information
+"""
+    
+    if sequence:
+        if plddt_score is None:
+            plddt_score = 0.0
+        context += f"""
+- Sequence Length: {len(sequence)} amino acids
+- Structure Prediction Method: AlphaFold 2
+- Prediction Confidence (pLDDT): {plddt_score:.2f}/100
+- Interpretation: {"High confidence" if plddt_score > 90 else "Medium confidence" if plddt_score > 70 else "Low confidence"}
+"""
+    else:
+        context += """
+- Structure Source: User-provided PDB file
+"""
+    
+    context += f"""
+
+## Docking Results Summary
+- Total Ligands Tested: {docking_results.get('total_ligands', 0)}
+- Successful Ligands: {docking_results.get('successful_ligands', 0)}
+- Failed Ligands: {docking_results.get('failed_ligands', 0)}
+- Best Binding Affinity: {docking_results.get('best_score', 'N/A')} kcal/mol
+- Best Ligand: {docking_results.get('best_ligand', 'N/A')}
+"""
+    
+    # Add statistics if available
+    statistics = docking_results.get('statistics', {})
+    if statistics:
+        context += f"""
+### Statistical Analysis:
+- Mean Binding Affinity: {statistics.get('mean_score', 'N/A'):.2f} kcal/mol
+- Standard Deviation: {statistics.get('std_score', 'N/A'):.2f} kcal/mol
+- Score Range: {statistics.get('min_score', 'N/A'):.2f} to {statistics.get('max_score', 'N/A'):.2f} kcal/mol
+- Median Score: {statistics.get('median_score', 'N/A'):.2f} kcal/mol
+- Number of Clusters: {statistics.get('num_clusters', 'N/A')}
+- Confidence Score: {statistics.get('confidence_score', 'N/A'):.2f}
+- Average Poses per Ligand: {statistics.get('mean_num_modes', 'N/A'):.1f}
+"""
+    
+    # Add analysis type specific context
+    if custom_prompt:
+        context += f"""
+
+### Custom Analysis Request:
+{custom_prompt}
+"""
+    elif analysis_type != "comprehensive":
+        analysis_focus = {
+            "binding_affinity": "Focus specifically on binding affinity analysis, interpretation, and validation.",
+            "drug_likeness": "Focus specifically on drug-likeness properties, ADMET predictions, and pharmaceutical development considerations.",
+            "toxicity": "Focus specifically on toxicity predictions, safety profile, and risk assessment."
+        }
+        context += f"""
+
+### Analysis Focus:
+{analysis_focus.get(analysis_type, "")}
+"""
+    
+    return context

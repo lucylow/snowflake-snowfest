@@ -157,7 +157,7 @@ export function SubmitJobDialog({ open, onOpenChange, onSubmit }: SubmitJobDialo
       exhaustiveness: exhaustiveness[0],
       energy_range: 3,
       num_modes: numModes[0],
-      use_gpu: useGpu,
+      use_gpu: false,
     }
 
     setIsSubmitting(true)

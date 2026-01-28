@@ -1,13 +1,13 @@
 import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from "@solana/web3.js"
 
 import { CURRENT_NETWORK, LOG_PREFIX, SOLANA_NETWORKS } from "./constants"
-import { NeuravivaSDK } from "./solana/neuraviva-sdk"
+import { SnowflakeSDK } from "./solana/snowflake-sdk"
 
 const RPC_URL = SOLANA_NETWORKS[CURRENT_NETWORK]?.rpc ?? SOLANA_NETWORKS.devnet.rpc
 
 export class SolanaClient {
   private connection: Connection
-  private neuravivaSDK: NeuravivaSDK | null = null
+  private snowflakeSDK: SnowflakeSDK | null = null
 
   constructor() {
     this.connection = new Connection(RPC_URL, "confirmed")
@@ -31,7 +31,7 @@ export class SolanaClient {
       }
       return balance / LAMPORTS_PER_SOL
     } catch (error) {
-      console.error("[v0] Error fetching balance:", error)
+      console.error(`${LOG_PREFIX} Error fetching balance:`, error)
       const errorMessage = error instanceof Error ? error.message : "Unknown error"
       if (errorMessage.includes("timeout") || errorMessage.includes("network")) {
         throw new Error("Network error connecting to Solana. Please check your connection.")
@@ -146,7 +146,7 @@ export class SolanaClient {
 
       return signature
     } catch (error) {
-      console.error("[v0] Error storing data on blockchain:", error)
+      console.error(`${LOG_PREFIX} Error storing data on blockchain:`, error)
       const errorMessage = error instanceof Error ? error.message : "Unknown error"
       throw new Error(`Failed to store data on blockchain: ${errorMessage}`)
     }
@@ -195,11 +195,11 @@ export class SolanaClient {
     }
   }
 
-  getNeuravivaSDK(): NeuravivaSDK {
-    if (!this.neuravivaSDK) {
-      this.neuravivaSDK = new NeuravivaSDK(this.connection, CURRENT_NETWORK)
+  getSnowflakeSDK(): SnowflakeSDK {
+    if (!this.snowflakeSDK) {
+      this.snowflakeSDK = new SnowflakeSDK(this.connection, CURRENT_NETWORK)
     }
-    return this.neuravivaSDK
+    return this.snowflakeSDK
   }
 
   async storeReportWithSDK(
@@ -215,7 +215,7 @@ export class SolanaClient {
       metadata?: any
     },
   ) {
-    const sdk = this.getNeuravivaSDK()
+    const sdk = this.getSnowflakeSDK()
     return sdk.storeReportHash(wallet, params)
   }
 
@@ -227,12 +227,12 @@ export class SolanaClient {
     jobId: string,
     verificationData: string,
   ) {
-    const sdk = this.getNeuravivaSDK()
+    const sdk = this.getSnowflakeSDK()
     return sdk.verifyReport(wallet, jobId, verificationData)
   }
 
   async getReportData(signature: string) {
-    const sdk = this.getNeuravivaSDK()
+    const sdk = this.getSnowflakeSDK()
     return sdk.getReport(signature)
   }
 }

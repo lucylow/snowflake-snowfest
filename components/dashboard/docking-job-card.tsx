@@ -1,6 +1,5 @@
 "use client"
 
-import { useMemo } from "react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Clock, CheckCircle, XCircle, Loader2, Dna, Sparkles } from "lucide-react"
@@ -11,23 +10,6 @@ interface DockingJobCardProps {
 }
 
 export function DockingJobCard({ job }: DockingJobCardProps) {
-  const getEstimatedTime = useMemo(() => {
-    const now = new Date()
-    const created = new Date(job.created_at)
-    const elapsed = (now.getTime() - created.getTime()) / 1000 / 60 // minutes
-
-    if (job.status === "predicting_structure") {
-      const estimated = 15 // average 15 minutes for AlphaFold
-      const remaining = Math.max(0, estimated - elapsed)
-      return remaining > 0 ? `~${Math.round(remaining)} min remaining` : "Completing soon..."
-    }
-    if (job.status === "docking" || job.status === "running") {
-      const estimated = 5 // average 5 minutes for docking
-      const remaining = Math.max(0, estimated - elapsed)
-      return remaining > 0 ? `~${Math.round(remaining)} min remaining` : "Completing soon..."
-    }
-    return null
-  }, [job.status, job.created_at])
   const getStatusIcon = () => {
     switch (job.status) {
       case "completed":
@@ -128,26 +110,13 @@ export function DockingJobCard({ job }: DockingJobCardProps) {
       )}
 
       {job.progress !== undefined && (job.status === "running" || job.status === "docking") && (
-        <div className="mt-4 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Progress</span>
-            <span className="font-medium">{job.progress}%</span>
-          </div>
-          <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
+        <div className="mt-4">
+          <div className="w-full bg-muted rounded-full h-2.5">
             <div
-              className="h-full bg-gradient-to-r from-primary to-primary/80 rounded-full transition-all duration-500 shadow-sm"
+              className="bg-primary h-2.5 rounded-full transition-all duration-500"
               style={{ width: `${job.progress}%` }}
             />
           </div>
-          {getEstimatedTime && (
-            <p className="text-xs text-muted-foreground">{getEstimatedTime}</p>
-          )}
-        </div>
-      )}
-      {!job.progress && getEstimatedTime && (
-        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-          <Clock className="w-3 h-3" />
-          <span>{getEstimatedTime}</span>
         </div>
       )}
       {job.error && (

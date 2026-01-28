@@ -1,6 +1,7 @@
 // Application constants
 
 export const APP_NAME = "SNOWFLAKE"
+export const LOG_PREFIX = "[SNOWFLAKE]"
 export const APP_DESCRIPTION = "Advanced Molecular Docking Platform with AI Analysis and Blockchain Verification"
 export const APP_URL = import.meta.env.VITE_APP_URL || "https://snowflake.com"
 
