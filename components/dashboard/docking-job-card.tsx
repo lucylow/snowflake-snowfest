@@ -10,6 +10,15 @@ interface DockingJobCardProps {
 }
 
 export function DockingJobCard({ job }: DockingJobCardProps) {
+  const qualityMetrics =
+    job.quality_metrics && typeof job.quality_metrics === "object" ? (job.quality_metrics as Record<string, unknown>) : undefined
+
+  const confidenceRegions = qualityMetrics?.confidence_regions as
+    | { very_high?: number; confident?: number }
+    | undefined
+
+  const paeScore = qualityMetrics?.pae_score
+
   const getStatusIcon = () => {
     switch (job.status) {
       case "completed":
@@ -85,13 +94,13 @@ export function DockingJobCard({ job }: DockingJobCardProps) {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-muted-foreground">High Confidence:</span>
                 <span className="font-semibold text-foreground">
-                  {job.quality_metrics.confidence_regions.very_high + job.quality_metrics.confidence_regions.confident} residues
+                  {(confidenceRegions?.very_high ?? 0) + (confidenceRegions?.confident ?? 0)} residues
                 </span>
               </div>
-              {job.quality_metrics.pae_score !== null && job.quality_metrics.pae_score !== undefined && (
+              {typeof paeScore === "number" && (
                 <div className="flex items-center justify-between pt-2 border-t border-border/30">
                   <span className="text-muted-foreground">PAE Score:</span>
-                  <span className="font-semibold text-foreground">{job.quality_metrics.pae_score.toFixed(2)} Å</span>
+                  <span className="font-semibold text-foreground">{paeScore.toFixed(2)} Å</span>
                 </div>
               )}
             </div>

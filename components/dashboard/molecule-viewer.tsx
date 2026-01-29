@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Loader2, Download, RotateCcw, ZoomIn, ZoomOut, AlertCircle } from "lucide-react"
-import Script from "next/script"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { MoleculeViewer2D } from "./molecule-viewer-2d"
 
@@ -45,6 +44,51 @@ export function MoleculeViewer({ pdbData, jobId, poseId = 0, title, description 
   const [error, setError] = useState<string | null>(null)
   const [use2DFallback, setUse2DFallback] = useState(false)
   const retryCountRef = useRef(0)
+
+  useEffect(() => {
+    if (window.$3Dmol) {
+      setScriptLoaded(true)
+      return
+    }
+
+    const existing = document.querySelector('script[data-3dmol="true"]') as HTMLScriptElement | null
+
+    const onError = () => {
+      console.error("[v0] Failed to load 3Dmol script")
+      setTimeout(() => {
+        setError("Failed to load 3D visualization library")
+        setIsLoading(false)
+        setUse2DFallback(true)
+      }, 0)
+    }
+
+    const onLoad = () => {
+      setScriptLoaded(true)
+    }
+
+    if (existing) {
+      existing.addEventListener("load", onLoad)
+      existing.addEventListener("error", onError)
+      return () => {
+        existing.removeEventListener("load", onLoad)
+        existing.removeEventListener("error", onError)
+      }
+    }
+
+    const script = document.createElement("script")
+    script.src = "https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"
+    script.async = true
+    script.defer = true
+    script.dataset["3dmol"] = "true"
+    script.addEventListener("load", onLoad)
+    script.addEventListener("error", onError)
+    document.body.appendChild(script)
+
+    return () => {
+      script.removeEventListener("load", onLoad)
+      script.removeEventListener("error", onError)
+    }
+  }, [])
 
   // Reset state when pdbData or poseId changes - use separate effect to avoid setState in effect
   useEffect(() => {
@@ -217,62 +261,47 @@ export function MoleculeViewer({ pdbData, jobId, poseId = 0, title, description 
   }
 
   return (
-    <>
-      <Script
-        src="https://3Dmol.csb.pitt.edu/build/3Dmol-min.js"
-        strategy="lazyOnload"
-        onLoad={() => {
-          setScriptLoaded(true)
-        }}
-        onError={() => {
-          console.error("[v0] Failed to load 3Dmol script")
-          setError("Failed to load 3D visualization library")
-          setIsLoading(false)
-          setUse2DFallback(true)
-        }}
-      />
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>{title || "3D Molecular Structure"}</CardTitle>
-              <CardDescription>{description || "Interactive protein-ligand visualization"}</CardDescription>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="icon" onClick={handleZoomIn} disabled={isLoading || !!error}>
-                <ZoomIn className="w-4 h-4" />
-              </Button>
-              <Button variant="outline" size="icon" onClick={handleZoomOut} disabled={isLoading || !!error}>
-                <ZoomOut className="w-4 h-4" />
-              </Button>
-              <Button variant="outline" size="icon" onClick={handleReset} disabled={isLoading || !!error}>
-                <RotateCcw className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleDownload}
-                disabled={isLoading || !pdbData || !!error}
-              >
-                <Download className="w-4 h-4" />
-              </Button>
-            </div>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>{title || "3D Molecular Structure"}</CardTitle>
+            <CardDescription>{description || "Interactive protein-ligand visualization"}</CardDescription>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="relative w-full h-[500px] border rounded-lg overflow-hidden bg-white">
-            {isLoading && !error && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-10">
-                <div className="text-center">
-                  <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">Loading 3D visualization...</p>
-                </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="icon" onClick={handleZoomIn} disabled={isLoading || !!error}>
+              <ZoomIn className="w-4 h-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={handleZoomOut} disabled={isLoading || !!error}>
+              <ZoomOut className="w-4 h-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={handleReset} disabled={isLoading || !!error}>
+              <RotateCcw className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleDownload}
+              disabled={isLoading || !pdbData || !!error}
+            >
+              <Download className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="relative w-full h-[500px] border rounded-lg overflow-hidden bg-white">
+          {isLoading && !error && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-10">
+              <div className="text-center">
+                <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Loading 3D visualization...</p>
               </div>
-            )}
-            <div ref={viewerRef} className="w-full h-full" />
-          </div>
-        </CardContent>
-      </Card>
-    </>
+            </div>
+          )}
+          <div ref={viewerRef} className="w-full h-full" />
+        </div>
+      </CardContent>
+    </Card>
   )
 }

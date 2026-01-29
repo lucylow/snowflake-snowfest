@@ -25,16 +25,35 @@ import { solanaClient } from "@/lib/solana-client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { mockBlockchainTransactions } from "@/lib/mock-data"
 
+type VerificationResult = {
+  valid: boolean
+  signature: string
+  details?: {
+    blockTime?: number
+    slot?: number
+  }
+}
+
+type ReportData = {
+  signature?: string
+  jobId?: string
+  reportType?: string
+  stakeholder?: string
+  timestamp?: string | number
+  reportHash?: string
+  metadata?: Record<string, unknown>
+}
+
 export default function Blockchain() {
   const { connected, publicKey, connect } = useWallet()
   const [txSignature, setTxSignature] = useState("")
-  const [verificationResult, setVerificationResult] = useState<Record<string, unknown> | null>(null)
+  const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null)
   const [isVerifying, setIsVerifying] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [balance, setBalance] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
   const [isRequestingAirdrop, setIsRequestingAirdrop] = useState(false)
-  const [reportData, setReportData] = useState<Record<string, unknown> | null>(null)
+  const [reportData, setReportData] = useState<ReportData | null>(null)
   const [estimatedCost, setEstimatedCost] = useState<number | null>(null)
   const [showExamples, setShowExamples] = useState(true)
 
@@ -89,7 +108,7 @@ export default function Blockchain() {
           },
           signature: mockTx.signature,
         })
-        setReportData(mockTx)
+        setReportData(mockTx as unknown as ReportData)
         setIsVerifying(false)
         return
       }
@@ -102,12 +121,14 @@ export default function Blockchain() {
 
         setVerificationResult({
           valid: true,
-          details,
+          details: details as unknown as VerificationResult["details"],
           signature: txSignature.trim(),
         })
 
         if (reportInfo) {
-          setReportData(reportInfo)
+          if (typeof reportInfo === "object" && reportInfo !== null) {
+            setReportData(reportInfo as unknown as ReportData)
+          }
         }
       } else {
         setVerificationResult({
@@ -404,13 +425,13 @@ export default function Blockchain() {
                               <span className="text-muted-foreground">Block Time:</span>
                               <span className="ml-2 font-mono">
                                 {verificationResult.details.blockTime
-                                  ? new Date((verificationResult.details.blockTime as number) * 1000).toLocaleString()
+                                  ? new Date(verificationResult.details.blockTime * 1000).toLocaleString()
                                   : "N/A"}
                               </span>
                             </div>
                             <div className="text-sm">
                               <span className="text-muted-foreground">Slot:</span>
-                              <span className="ml-2 font-mono">{verificationResult.details.slot || "N/A"}</span>
+                              <span className="ml-2 font-mono">{verificationResult.details.slot ?? "N/A"}</span>
                             </div>
                           </>
                         )}
@@ -444,7 +465,15 @@ export default function Blockchain() {
                                 <span className="text-muted-foreground">Timestamp:</span>
                                 <div className="flex items-center gap-1 mt-1">
                                   <Calendar className="w-3 h-3" />
-                                  <span className="text-xs">{new Date(reportData.timestamp as string).toLocaleDateString()}</span>
+                                  <span className="text-xs">
+                                    {reportData.timestamp
+                                      ? new Date(
+                                          typeof reportData.timestamp === "number"
+                                            ? reportData.timestamp
+                                            : reportData.timestamp,
+                                        ).toLocaleDateString()
+                                      : "N/A"}
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -452,7 +481,7 @@ export default function Blockchain() {
                             <div className="text-sm">
                               <span className="text-muted-foreground">Report Hash:</span>
                               <code className="text-xs font-mono break-all block bg-background p-2 rounded mt-1">
-                                {reportData.reportHash}
+                                {reportData.reportHash || ""}
                               </code>
                             </div>
 

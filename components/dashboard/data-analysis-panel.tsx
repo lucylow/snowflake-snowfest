@@ -8,26 +8,44 @@ import { TrendAnalysis } from "./trend-analysis"
 import { DataExport } from "./data-export"
 import { BarChart3 } from "lucide-react"
 
-interface DockingResult {
-  ligand_name?: string
-  modes?: Array<{
-    affinity?: number
-    rmsd_lb?: number
-    rmsd_ub?: number
-  }>
-}
+type DockingResultsForStats =
+  | {
+      results?: Array<{
+        ligand_name: string
+        modes?: Array<{
+          affinity: number
+          rmsd_lb?: number
+          rmsd_ub?: number
+        }>
+      }>
+      best_score?: number
+    }
+  | {
+      poses?: Array<{
+        score: number
+        rmsd: number
+      }>
+      best_pose?: {
+        score: number
+      }
+    }
 
 interface JobData {
   jobId: string
   jobName: string
   createdAt?: string
-  results?: DockingResult
+  results?: Array<{
+    ligand_name: string
+    modes?: Array<{
+      affinity: number
+    }>
+  }>
   best_score?: number
 }
 
 interface DataAnalysisPanelProps {
   jobId: string
-  dockingResults: DockingResult
+  dockingResults: DockingResultsForStats
   analysisResults?: Record<string, unknown>
   allJobs?: JobData[]
 }
@@ -38,6 +56,23 @@ export function DataAnalysisPanel({
   analysisResults,
   allJobs = [],
 }: DataAnalysisPanelProps) {
+  const comparisonJobs = allJobs.map((j) => ({
+    jobId: j.jobId,
+    jobName: j.jobName,
+    results: j.results,
+    best_score: j.best_score,
+  }))
+
+  const trendJobs = allJobs
+    .filter((j): j is JobData & { createdAt: string } => !!j.createdAt)
+    .map((j) => ({
+      jobId: j.jobId,
+      jobName: j.jobName,
+      createdAt: j.createdAt,
+      best_score: j.best_score,
+      results: j.results,
+    }))
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -59,7 +94,7 @@ export function DataAnalysisPanel({
 
         <TabsContent value="comparison" className="mt-6">
           {allJobs.length >= 2 ? (
-            <ComparativeAnalysis jobs={allJobs} />
+            <ComparativeAnalysis jobs={comparisonJobs} />
           ) : (
             <div className="p-8 text-center text-muted-foreground">
               <p>Need at least 2 jobs to perform comparative analysis.</p>
@@ -69,8 +104,8 @@ export function DataAnalysisPanel({
         </TabsContent>
 
         <TabsContent value="trends" className="mt-6">
-          {allJobs.length >= 2 ? (
-            <TrendAnalysis jobs={allJobs} />
+          {trendJobs.length >= 2 ? (
+            <TrendAnalysis jobs={trendJobs} />
           ) : (
             <div className="p-8 text-center text-muted-foreground">
               <p>Need at least 2 jobs with timestamps to analyze trends.</p>
