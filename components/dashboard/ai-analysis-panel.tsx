@@ -9,9 +9,12 @@ import { Sparkles, Loader2, Copy, Check, AlertCircle, TrendingUp, Activity, Zap 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { aiAgent, type AIAnalysisRequest, type AIAnalysisResponse } from "@/lib/ai-agent"
+import { mockAIAnalyses } from "@/lib/mock-data"
 import { AIConfidenceChart } from "./ai-confidence-chart"
 import { DrugLikenessRadar } from "./drug-likeness-radar"
 import { InteractionHeatmap } from "./interaction-heatmap"
+import { ADMETPropertiesPanel } from "./admet-properties-panel"
+import { ToxicityPredictionsPanel } from "./toxicity-predictions-panel"
 
 interface AIAnalysisPanelProps {
   jobId: string
@@ -26,6 +29,26 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  type MockStakeholderAnalysis = {
+    summary: string
+    recommendations?: string[]
+    confidence?: number
+    bindingAnalysis?: unknown
+    marketOpportunity?: unknown
+    safetyProfile?: unknown
+    clinicalApplication?: unknown
+  }
+
+  const toText = (value: unknown) => {
+    if (value === null || value === undefined) return ""
+    if (typeof value === "string") return value
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch {
+      return String(value)
+    }
+  }
+
   const handleAnalyze = async () => {
     setIsAnalyzing(true)
     setError(null)
@@ -35,17 +58,18 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
       if (mockData) {
         await new Promise((resolve) => setTimeout(resolve, 1500))
 
-        const stakeholderData = mockData[stakeholderType as keyof typeof mockData] as Record<string, unknown>
+        const stakeholderData = mockData[stakeholderType as keyof typeof mockData] as MockStakeholderAnalysis | undefined
         if (stakeholderData) {
           setResult({
             analysis: {
               summary: stakeholderData.summary,
-              detailed_analysis:
-                stakeholderData.bindingAnalysis ||
-                stakeholderData.marketOpportunity ||
-                stakeholderData.safetyProfile ||
-                stakeholderData.clinicalApplication ||
-                {},
+              detailed_analysis: {
+                binding_analysis: toText(stakeholderData.bindingAnalysis || stakeholderData.summary),
+                interaction_analysis: toText(stakeholderData.marketOpportunity || stakeholderData.safetyProfile || ""),
+                pose_quality: toText(stakeholderData.clinicalApplication || ""),
+                drug_likeness: toText(stakeholderData.marketOpportunity || stakeholderData.safetyProfile || ""),
+                clinical_insights: stakeholderData.clinicalApplication,
+              },
               limitations: [
                 "Analysis based on computational predictions only",
                 "Experimental validation required",
@@ -53,10 +77,12 @@ export function AIAnalysisPanel({ jobId }: AIAnalysisPanelProps) {
               ],
             },
             recommendations: stakeholderData.recommendations || [],
-            confidence: stakeholderData.confidence,
+            confidence: stakeholderData.confidence ?? 0.85,
             metadata: {
               model: "gpt-4-turbo",
-              costEstimate: 0.0234,
+              timestamp: new Date().toISOString(),
+              tokenCount: 0,
+              costEstimate: 0,
               processingTime: 1.5,
             },
           })

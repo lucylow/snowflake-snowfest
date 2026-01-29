@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { BarChart3, TrendingDown, TrendingUp, Minus, AlertTriangle } from "lucide-react"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { Bar, BarChart, XAxis, YAxis, ResponsiveContainer, LineChart, Line, BoxPlot, Cell } from "recharts"
+import { Bar, BarChart, XAxis, YAxis, ResponsiveContainer, LineChart, Line, Cell } from "recharts"
 
 interface StatisticalAnalysisProps {
   dockingResults: {

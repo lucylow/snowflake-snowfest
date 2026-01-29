@@ -57,6 +57,20 @@ export interface DockingResult {
   ai_analysis?: any
 }
 
+// AlphaFold quality metrics (frontend shape)
+export interface QualityMetrics {
+  plddt_score: number
+  confidence_regions: {
+    very_high: number
+    confident: number
+    low: number
+    very_low: number
+  }
+  pae_score?: number | null
+  structure_length: number
+  per_residue_plddt: number[]
+}
+
 export interface JobStatus {
   job_id: string
   status:
@@ -79,7 +93,7 @@ export interface JobStatus {
   ai_report_content?: string
   blockchain_tx_hash?: string
   job_type?: string
-  quality_metrics?: Record<string, unknown>
+  quality_metrics?: QualityMetrics | Record<string, unknown>
 }
 
 /** Map backend job (id, error_message, status) to JobStatus (job_id, error, status). */

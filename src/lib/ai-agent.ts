@@ -21,6 +21,8 @@ export interface AIAnalysisResponse {
       interaction_analysis: string
       pose_quality: string
       drug_likeness: string
+      clinical_insights?: unknown
+      [key: string]: unknown
     }
     limitations: string[]
   }
@@ -32,7 +34,12 @@ export interface AIAnalysisResponse {
     timestamp: string
     tokenCount: number
     costEstimate: number
+    processingTime?: number
   }
+
+  /** Optional ML/cheminformatics outputs used by dashboard panels (may be absent depending on backend). */
+  admet_properties?: unknown
+  toxicity_predictions?: unknown
 }
 
 class AIAgent {

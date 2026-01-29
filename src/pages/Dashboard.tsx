@@ -17,6 +17,7 @@ import { JobSearchFilter } from "@/components/dashboard/job-search-filter"
 import { JobListSkeleton } from "@/components/dashboard/job-list-skeleton"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut"
+import { KeyboardShortcutsHint } from "@/components/dashboard/keyboard-shortcuts-hint"
 
 export default function Dashboard() {
   const navigate = useNavigate()

@@ -15,7 +15,14 @@ import { ArrowLeft, Loader2, TrendingDown, Activity, Zap } from "lucide-react"
 import { BindingAffinityChart } from "@/components/dashboard/binding-affinity-chart"
 import { RMSDConvergenceChart } from "@/components/dashboard/rmsd-convergence-chart"
 import { DataAnalysisPanel } from "@/components/dashboard/data-analysis-panel"
-import { Breadcrumb } from "@/components/ui/breadcrumb"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export default function Results() {
@@ -121,11 +128,19 @@ export default function Results() {
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 md:py-12 lg:py-16">
         <div className="mb-8 space-y-6">
           <Breadcrumb
-            items={[
-              { label: "Dashboard", href: "/dashboard" },
-              { label: `Job ${jobId.slice(0, 8)}` },
-            ]}
-          />
+          >
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link to="/dashboard">Dashboard</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{`Job ${jobId.slice(0, 8)}`}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-2">
               <h1 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">Docking Results</h1>

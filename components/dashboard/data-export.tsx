@@ -12,14 +12,31 @@ interface DockingMode {
   rmsd_ub?: number
 }
 
-interface DockingResult {
-  ligand_name?: string
-  modes?: DockingMode[]
-  results?: Array<{
-    ligand_name?: string
-    modes?: DockingMode[]
-  }>
-}
+type DockingResult =
+  | {
+      results?: Array<{
+        ligand_name?: string
+        modes?: DockingMode[]
+      }>
+      best_score?: number
+    }
+  | {
+      poses?: Array<{
+        score: number
+        rmsd: number
+      }>
+      best_pose?: {
+        score: number
+      }
+    }
+  | {
+      ligand_name?: string
+      modes?: DockingMode[]
+      results?: Array<{
+        ligand_name?: string
+        modes?: DockingMode[]
+      }>
+    }
 
 interface DataExportProps {
   jobId: string
@@ -57,7 +74,17 @@ export function DataExport({ jobId, dockingResults, analysisResults }: DataExpor
         // Extract binding affinities
         const affinities: Array<{ ligand: string; pose: number; affinity: number; rmsd_lb?: number; rmsd_ub?: number }> = []
 
-        dockingResults.results?.forEach((result: DockingResult) => {
+        const resultsArray =
+          "results" in dockingResults
+            ? dockingResults.results
+            : "poses" in dockingResults
+              ? dockingResults.poses?.map((p, idx) => ({
+                  ligand_name: `pose_${idx + 1}`,
+                  modes: [{ affinity: p.score, rmsd_lb: p.rmsd, rmsd_ub: p.rmsd }],
+                }))
+              : undefined
+
+        resultsArray?.forEach((result) => {
           const modes = result.modes || []
           modes.forEach((mode: DockingMode, idx: number) => {
             if (mode.affinity !== undefined) {
